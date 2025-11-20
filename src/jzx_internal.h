@@ -28,12 +28,28 @@ typedef struct {
     uint32_t count;
 } jzx_mailbox_impl;
 
+typedef struct {
+    jzx_child_spec spec;
+    jzx_actor_id id;
+    uint32_t restart_count;
+    uint64_t last_restart_ms;
+} jzx_child_state;
+
+typedef struct {
+    jzx_supervisor_spec config;
+    jzx_child_state* children;
+    size_t child_count;
+    uint32_t intensity_window_count;
+    uint64_t intensity_window_start_ms;
+} jzx_supervisor_state;
+
 typedef struct jzx_actor {
     jzx_actor_id id;
     jzx_actor_status status;
     jzx_behavior_fn behavior;
     void* state;
     jzx_actor_id supervisor;
+    jzx_supervisor_state* supervisor_state;
     jzx_mailbox_impl mailbox;
     uint8_t in_run_queue;
 } jzx_actor;
