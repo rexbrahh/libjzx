@@ -81,10 +81,24 @@ pub fn build(b: *std.Build) void {
     const example_step = b.step("examples", "Build example binaries");
     example_step.dependOn(&zig_example.step);
 
+    const sup_module = b.createModule(.{
+        .root_source_file = b.path("examples/zig/supervisor.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "jzx", .module = jzx_module }},
+    });
+    const zig_sup = b.addExecutable(.{
+        .name = "zig-supervisor",
+        .root_module = sup_module,
+    });
+    b.installArtifact(zig_sup);
+    example_step.dependOn(&zig_sup.step);
+
     const fmt = b.addFmt(.{ .paths = &.{
         "zig/jzx/lib.zig",
         "zig/tests/basic.zig",
         "examples/zig/ping.zig",
+        "examples/zig/supervisor.zig",
     } });
     const fmt_step = b.step("fmt", "Run zig fmt on Zig sources");
     fmt_step.dependOn(&fmt.step);

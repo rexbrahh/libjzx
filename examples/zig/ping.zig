@@ -5,11 +5,7 @@ const c = jzx.c;
 fn print_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
-    const file_ptr = @as(*std.fs.File, @ptrFromInt(@intFromPtr(ctx_ptr.state.?)));
-    const w = file_ptr.writer();
-    w.print("actor {d} received message\n", .{ctx_ptr.self}) catch {
-        return c.JZX_BEHAVIOR_FAIL;
-    };
+    std.debug.print("actor {d} received message\n", .{ctx_ptr.self});
     return c.JZX_BEHAVIOR_STOP;
 }
 
@@ -17,11 +13,9 @@ pub fn main() !void {
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
 
-    var stdout_file = std.io.getStdOut();
-
     var opts = c.jzx_spawn_opts{
         .behavior = print_behavior,
-        .state = &stdout_file,
+        .state = null,
         .supervisor = 0,
         .mailbox_cap = 0,
     };

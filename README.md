@@ -42,11 +42,18 @@ zig build test        # exercises sync/async send, timers, and I/O watchers from
 zig build examples    # builds the Zig example and links it against the runtime
 cc examples/c/loop.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_example && /tmp/jzx_example
 cc examples/c/supervisor.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_sup && /tmp/jzx_sup
+zig build examples    # also builds zig-supervisor; run zig-out/bin/zig-supervisor
 ```
 
 These exercises instantiate the runtime, spawn actors, verify timers/I-O (`jzx_send_after`, `jzx_watch_fd`), and drive the scheduler until all queued work completes.
 
 Each subsystem has its own placeholder implementation so new contributors can iterate on runtime behavior, Zig ergonomics, or examples independently.
+
+### Supervision
+
+- C example: `examples/c/supervisor.c`
+- Zig example: `examples/zig/supervisor.zig`
+- Design/usage notes: `docs/supervision.md`
 
 ### Nix + direnv dev shell
 
