@@ -182,22 +182,28 @@ jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer);
 jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t interest);
 jzx_err jzx_unwatch_fd(jzx_loop* loop, int fd);
 
-#ifdef __cplusplus
-}
-#endif
-
-#endif // JZX_JZX_H
 typedef struct {
     int fd;
     uint32_t readiness;
 } jzx_io_event;
 
+#define JZX_IO_READ  (1u << 0)
+#define JZX_IO_WRITE (1u << 1)
+
 #define JZX_TAG_SYS_CHILD_EXIT 0xffff0002u
+#define JZX_TAG_SYS_CHILD_RESTART 0xffff0003u
 
 typedef struct {
     jzx_actor_id child;
     jzx_actor_status status;
 } jzx_child_exit;
 
-#define JZX_IO_READ  (1u << 0)
-#define JZX_IO_WRITE (1u << 1)
+typedef struct {
+    uint32_t child_index;
+} jzx_child_restart;
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // JZX_JZX_H

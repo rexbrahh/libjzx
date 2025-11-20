@@ -70,6 +70,23 @@ static void jzx_supervisor_state_destroy(jzx_supervisor_state* state, jzx_alloca
     jzx_free(allocator, state);
 }
 
+static int jzx_supervisor_allow_restart(jzx_supervisor_state* sup, uint64_t now_ms) {
+    if (!sup) return 0;
+    if (sup->config.intensity == 0 || sup->config.period_ms == 0) {
+        return 1;
+    }
+    if (sup->intensity_window_start_ms == 0 ||
+        now_ms - sup->intensity_window_start_ms > sup->config.period_ms) {
+        sup->intensity_window_start_ms = now_ms;
+        sup->intensity_window_count = 0;
+    }
+    sup->intensity_window_count += 1;
+    if (sup->intensity_window_count > sup->config.intensity) {
+        return 0;
+    }
+    return 1;
+}
+
 static uint64_t jzx_now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -358,15 +375,42 @@ static void jzx_supervisor_stop_child(jzx_loop* loop, jzx_child_state* child) {
     }
 }
 
+static void jzx_supervisor_schedule_restart(jzx_loop* loop,
+                                            jzx_actor* sup_actor,
+                                            size_t child_idx,
+                                            uint32_t delay_ms) {
+    jzx_supervisor_state* sup = sup_actor->supervisor_state;
+    if (!sup || child_idx >= sup->child_count) return;
+    if (delay_ms == 0) {
+        (void)jzx_supervisor_spawn_child(loop, sup_actor->id, &sup->children[child_idx]);
+        return;
+    }
+    jzx_child_restart* payload =
+        (jzx_child_restart*)jzx_alloc(&loop->allocator, sizeof(jzx_child_restart));
+    if (!payload) return;
+    payload->child_index = (uint32_t)child_idx;
+    jzx_err err = jzx_send_after(loop,
+                                 sup_actor->id,
+                                 delay_ms,
+                                 payload,
+                                 sizeof(jzx_child_restart),
+                                 JZX_TAG_SYS_CHILD_RESTART,
+                                 NULL);
+    if (err != JZX_OK) {
+        jzx_free(&loop->allocator, payload);
+    }
+}
+
 static void jzx_supervisor_restart_strategy(jzx_loop* loop,
                                             jzx_actor* supervisor_actor,
                                             size_t failed_idx,
                                             jzx_supervisor_state* sup) {
+    uint32_t failed_delay = sup->children[failed_idx].spec.restart_delay_ms;
     switch (sup->config.strategy) {
     case JZX_SUP_ONE_FOR_ONE:
         sup->children[failed_idx].restart_count += 1;
         sup->children[failed_idx].last_restart_ms = jzx_now_ms();
-        (void)jzx_supervisor_spawn_child(loop, supervisor_actor->id, &sup->children[failed_idx]);
+        jzx_supervisor_schedule_restart(loop, supervisor_actor, failed_idx, failed_delay);
         break;
     case JZX_SUP_ONE_FOR_ALL:
         for (size_t i = 0; i < sup->child_count; ++i) {
@@ -375,7 +419,8 @@ static void jzx_supervisor_restart_strategy(jzx_loop* loop,
         for (size_t i = 0; i < sup->child_count; ++i) {
             sup->children[i].restart_count += 1;
             sup->children[i].last_restart_ms = jzx_now_ms();
-            (void)jzx_supervisor_spawn_child(loop, supervisor_actor->id, &sup->children[i]);
+            uint32_t delay = sup->children[i].spec.restart_delay_ms;
+            jzx_supervisor_schedule_restart(loop, supervisor_actor, i, delay);
         }
         break;
     case JZX_SUP_REST_FOR_ONE:
@@ -385,7 +430,8 @@ static void jzx_supervisor_restart_strategy(jzx_loop* loop,
         for (size_t i = failed_idx; i < sup->child_count; ++i) {
             sup->children[i].restart_count += 1;
             sup->children[i].last_restart_ms = jzx_now_ms();
-            (void)jzx_supervisor_spawn_child(loop, supervisor_actor->id, &sup->children[i]);
+            uint32_t delay = sup->children[i].spec.restart_delay_ms;
+            jzx_supervisor_schedule_restart(loop, supervisor_actor, i, delay);
         }
         break;
     }
@@ -400,28 +446,54 @@ static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_m
         return JZX_BEHAVIOR_OK;
     }
     jzx_supervisor_state* sup = sup_actor->supervisor_state;
-    if (msg->tag != JZX_TAG_SYS_CHILD_EXIT || !msg->data) {
-        return JZX_BEHAVIOR_OK;
-    }
-    jzx_child_exit* ev = (jzx_child_exit*)msg->data;
-    size_t idx = 0;
-    jzx_child_state* child = jzx_supervisor_find_child(sup, ev->child, &idx);
-    jzx_free(&ctx->loop->allocator, ev);
-    if (!child) {
-        return JZX_BEHAVIOR_OK;
-    }
-    // Clear current id
-    child->id = 0;
+    if (msg->tag == JZX_TAG_SYS_CHILD_EXIT && msg->data) {
+        jzx_child_exit* ev = (jzx_child_exit*)msg->data;
+        size_t idx = 0;
+        jzx_child_state* child = jzx_supervisor_find_child(sup, ev->child, &idx);
+        jzx_actor_status status = ev->status;
+        jzx_free(&ctx->loop->allocator, ev);
+        if (!child) {
+            return JZX_BEHAVIOR_OK;
+        }
+        child->id = 0;
 
-    int restart = 0;
-    if (child->spec.mode == JZX_CHILD_PERMANENT) {
-        restart = 1;
-    } else if (child->spec.mode == JZX_CHILD_TRANSIENT &&
-               ev->status == JZX_ACTOR_FAILED) {
-        restart = 1;
-    }
-    if (restart) {
+        int restart = 0;
+        if (child->spec.mode == JZX_CHILD_PERMANENT) {
+            restart = 1;
+        } else if (child->spec.mode == JZX_CHILD_TRANSIENT &&
+                   status == JZX_ACTOR_FAILED) {
+            restart = 1;
+        }
+
+        if (!restart) {
+            return JZX_BEHAVIOR_OK;
+        }
+
+        uint64_t now = jzx_now_ms();
+        if (!jzx_supervisor_allow_restart(sup, now)) {
+            for (size_t i = 0; i < sup->child_count; ++i) {
+                jzx_supervisor_stop_child(ctx->loop, &sup->children[i]);
+            }
+            sup_actor->status = JZX_ACTOR_FAILED;
+            return JZX_BEHAVIOR_FAIL;
+        }
+
         jzx_supervisor_restart_strategy(ctx->loop, sup_actor, idx, sup);
+        return JZX_BEHAVIOR_OK;
+    }
+
+    if (msg->tag == JZX_TAG_SYS_CHILD_RESTART && msg->data) {
+        jzx_child_restart* ev = (jzx_child_restart*)msg->data;
+        uint32_t idx = ev->child_index;
+        jzx_free(&ctx->loop->allocator, ev);
+        if (idx < sup->child_count) {
+            (void)jzx_supervisor_spawn_child(ctx->loop, ctx->self, &sup->children[idx]);
+        }
+        return JZX_BEHAVIOR_OK;
+    }
+
+    if (msg->data) {
+        jzx_free(&ctx->loop->allocator, msg->data);
     }
     return JZX_BEHAVIOR_OK;
 }
