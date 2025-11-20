@@ -7,8 +7,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+struct pollfd;
 typedef struct jzx_async_msg jzx_async_msg;
 typedef struct jzx_timer_entry jzx_timer_entry;
+typedef struct jzx_io_watch jzx_io_watch;
 
 typedef enum {
     JZX_ACTOR_STATUS_INIT = 0,
@@ -70,6 +72,12 @@ struct jzx_loop {
     uint8_t timer_stop;
     jzx_timer_entry* timer_head;
     jzx_timer_id next_timer_id;
+    jzx_io_watch* io_watchers;
+    uint32_t io_capacity;
+    uint32_t io_count;
+    struct pollfd* io_pollfds;
+    uint8_t io_dirty;
+    struct xev_loop* xev;
     int running;
     int stop_requested;
 };
@@ -91,6 +99,13 @@ struct jzx_timer_entry {
     uint32_t tag;
     uint64_t due_ms;
     struct jzx_timer_entry* next;
+};
+
+struct jzx_io_watch {
+    int fd;
+    jzx_actor_id owner;
+    uint32_t interest;
+    uint8_t active;
 };
 
 #endif

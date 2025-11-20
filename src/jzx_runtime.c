@@ -1,5 +1,6 @@
 #include "jzx_internal.h"
 
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -42,6 +43,8 @@ static jzx_err jzx_send_internal(jzx_loop* loop,
                                  size_t len,
                                  uint32_t tag,
                                  jzx_actor_id sender);
+
+static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor);
 
 // -----------------------------------------------------------------------------
 // Mailbox implementation
@@ -252,6 +255,7 @@ static void jzx_teardown_actor(jzx_loop* loop, jzx_actor* actor) {
     if (!actor) {
         return;
     }
+    jzx_io_remove_actor(loop, actor->id);
     jzx_mailbox_deinit(&actor->mailbox, &loop->allocator);
     jzx_actor_table_remove(&loop->actors, actor);
     jzx_free(&loop->allocator, actor);
@@ -475,6 +479,170 @@ static int jzx_timer_has_pending(jzx_loop* loop) {
 }
 
 // -----------------------------------------------------------------------------
+// I O watchers
+// -----------------------------------------------------------------------------
+
+static jzx_err jzx_io_init(jzx_loop* loop, uint32_t capacity) {
+    loop->io_capacity = capacity ? capacity : 1;
+    loop->io_count = 0;
+    loop->io_dirty = 1;
+    loop->io_watchers = (jzx_io_watch*)jzx_alloc(&loop->allocator, sizeof(jzx_io_watch) * loop->io_capacity);
+    if (!loop->io_watchers) {
+        return JZX_ERR_NO_MEMORY;
+    }
+    memset(loop->io_watchers, 0, sizeof(jzx_io_watch) * loop->io_capacity);
+    loop->io_pollfds = (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * loop->io_capacity);
+    if (!loop->io_pollfds) {
+        return JZX_ERR_NO_MEMORY;
+    }
+    memset(loop->io_pollfds, 0, sizeof(struct pollfd) * loop->io_capacity);
+    return JZX_OK;
+}
+
+static void jzx_io_deinit(jzx_loop* loop) {
+    if (loop->io_watchers) {
+        jzx_free(&loop->allocator, loop->io_watchers);
+        loop->io_watchers = NULL;
+    }
+    if (loop->io_pollfds) {
+        jzx_free(&loop->allocator, loop->io_pollfds);
+        loop->io_pollfds = NULL;
+    }
+    loop->io_capacity = 0;
+    loop->io_count = 0;
+}
+
+static jzx_err jzx_io_reserve(jzx_loop* loop, uint32_t new_cap) {
+    jzx_io_watch* new_watchers = (jzx_io_watch*)jzx_alloc(&loop->allocator, sizeof(jzx_io_watch) * new_cap);
+    if (!new_watchers) {
+        return JZX_ERR_NO_MEMORY;
+    }
+    struct pollfd* new_pollfds = (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * new_cap);
+    if (!new_pollfds) {
+        jzx_free(&loop->allocator, new_watchers);
+        return JZX_ERR_NO_MEMORY;
+    }
+    memset(new_watchers, 0, sizeof(jzx_io_watch) * new_cap);
+    memset(new_pollfds, 0, sizeof(struct pollfd) * new_cap);
+    if (loop->io_watchers) {
+        memcpy(new_watchers, loop->io_watchers, sizeof(jzx_io_watch) * loop->io_count);
+        jzx_free(&loop->allocator, loop->io_watchers);
+    }
+    if (loop->io_pollfds) {
+        memcpy(new_pollfds, loop->io_pollfds, sizeof(struct pollfd) * loop->io_count);
+        jzx_free(&loop->allocator, loop->io_pollfds);
+    }
+    loop->io_watchers = new_watchers;
+    loop->io_pollfds = new_pollfds;
+    loop->io_capacity = new_cap;
+    loop->io_dirty = 1;
+    return JZX_OK;
+}
+
+static jzx_io_watch* jzx_io_find(jzx_loop* loop, int fd, uint32_t* idx_out) {
+    for (uint32_t i = 0; i < loop->io_count; ++i) {
+        if (loop->io_watchers[i].fd == fd) {
+            if (idx_out) {
+                *idx_out = i;
+            }
+            return &loop->io_watchers[i];
+        }
+    }
+    return NULL;
+}
+
+static void jzx_io_remove_index(jzx_loop* loop, uint32_t idx) {
+    if (idx >= loop->io_count) {
+        return;
+    }
+    uint32_t last = loop->io_count - 1;
+    if (idx != last) {
+        loop->io_watchers[idx] = loop->io_watchers[last];
+        loop->io_pollfds[idx] = loop->io_pollfds[last];
+    }
+    loop->io_count--;
+    loop->io_dirty = 1;
+}
+
+static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor) {
+    for (uint32_t i = 0; i < loop->io_count;) {
+        if (loop->io_watchers[i].owner == actor) {
+            jzx_io_remove_index(loop, i);
+            continue;
+        }
+        ++i;
+    }
+}
+
+static short jzx_io_interest_to_poll(uint32_t interest) {
+    short mask = 0;
+    if (interest & JZX_IO_READ) {
+        mask |= POLLIN | POLLERR | POLLHUP | POLLNVAL;
+    }
+    if (interest & JZX_IO_WRITE) {
+        mask |= POLLOUT | POLLERR | POLLHUP | POLLNVAL;
+    }
+    return mask;
+}
+
+static uint32_t jzx_io_revents_to_readiness(short revents) {
+    uint32_t readiness = 0;
+    if (revents & (POLLIN | POLLERR | POLLHUP | POLLNVAL)) {
+        readiness |= JZX_IO_READ;
+    }
+    if (revents & (POLLOUT)) {
+        readiness |= JZX_IO_WRITE;
+    }
+    return readiness;
+}
+
+static void jzx_io_rebuild_pollfds(jzx_loop* loop) {
+    if (!loop->io_dirty) {
+        return;
+    }
+    for (uint32_t i = 0; i < loop->io_count; ++i) {
+        loop->io_pollfds[i].fd = loop->io_watchers[i].fd;
+        loop->io_pollfds[i].events = jzx_io_interest_to_poll(loop->io_watchers[i].interest);
+        loop->io_pollfds[i].revents = 0;
+    }
+    loop->io_dirty = 0;
+}
+
+static void jzx_io_poll(jzx_loop* loop, uint32_t timeout_ms) {
+    if (loop->io_count == 0) {
+        return;
+    }
+    jzx_io_rebuild_pollfds(loop);
+    int wait_ms = (int)timeout_ms;
+    int rv = poll(loop->io_pollfds, loop->io_count, wait_ms);
+    if (rv <= 0) {
+        return;
+    }
+    for (uint32_t i = 0; i < loop->io_count; ++i) {
+        struct pollfd* pfd = &loop->io_pollfds[i];
+        if (!pfd->revents) {
+            continue;
+        }
+        uint32_t readiness = jzx_io_revents_to_readiness(pfd->revents);
+        pfd->revents = 0;
+        if (readiness == 0) {
+            continue;
+        }
+        jzx_io_watch* watch = &loop->io_watchers[i];
+        jzx_io_event* ev = (jzx_io_event*)jzx_alloc(&loop->allocator, sizeof(jzx_io_event));
+        if (!ev) {
+            continue;
+        }
+        ev->fd = watch->fd;
+        ev->readiness = readiness;
+        jzx_err err = jzx_send_internal(loop, watch->owner, ev, sizeof(jzx_io_event), JZX_TAG_SYS_IO, 0);
+        if (err != JZX_OK) {
+            jzx_free(&loop->allocator, ev);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Config helpers
 // -----------------------------------------------------------------------------
 
@@ -500,6 +668,8 @@ void jzx_config_init(jzx_config* cfg) {
     cfg->default_mailbox_cap = 1024;
     cfg->max_msgs_per_actor = 64;
     cfg->max_actors_per_tick = 1024;
+    cfg->max_io_watchers = 1024;
+    cfg->io_poll_timeout_ms = 10;
 }
 
 static void apply_defaults(jzx_config* cfg) {
@@ -520,6 +690,12 @@ static void apply_defaults(jzx_config* cfg) {
     }
     if (cfg->max_actors_per_tick == 0) {
         cfg->max_actors_per_tick = 1024;
+    }
+    if (cfg->max_io_watchers == 0) {
+        cfg->max_io_watchers = 1024;
+    }
+    if (cfg->io_poll_timeout_ms == 0) {
+        cfg->io_poll_timeout_ms = 10;
     }
 }
 
@@ -560,6 +736,10 @@ jzx_loop* jzx_loop_create(const jzx_config* cfg) {
         jzx_loop_destroy(loop);
         return NULL;
     }
+    if (jzx_io_init(loop, local.max_io_watchers) != JZX_OK) {
+        jzx_loop_destroy(loop);
+        return NULL;
+    }
     loop->running = 0;
     loop->stop_requested = 0;
     return loop;
@@ -571,6 +751,7 @@ void jzx_loop_destroy(jzx_loop* loop) {
     }
     jzx_timer_system_shutdown(loop);
     jzx_async_queue_destroy(loop);
+    jzx_io_deinit(loop);
     for (uint32_t i = 0; i < loop->actors.capacity; ++i) {
         jzx_actor* actor = loop->actors.slots ? loop->actors.slots[i] : NULL;
         if (actor) {
@@ -595,6 +776,7 @@ int jzx_loop_run(jzx_loop* loop) {
     int rc = JZX_OK;
     while (!loop->stop_requested) {
         jzx_async_drain(loop);
+        jzx_io_poll(loop, 0);
         uint32_t actors_processed = 0;
         while (actors_processed < loop->cfg.max_actors_per_tick) {
             jzx_actor* actor = jzx_run_queue_pop(&loop->run_queue);
@@ -641,9 +823,11 @@ int jzx_loop_run(jzx_loop* loop) {
         if (loop->run_queue.count == 0) {
             if (loop->actors.used == 0 &&
                 !jzx_async_has_pending(loop) &&
-                !jzx_timer_has_pending(loop)) {
+                !jzx_timer_has_pending(loop) &&
+                loop->io_count == 0) {
                 break;
             }
+            jzx_io_poll(loop, loop->cfg.io_poll_timeout_ms);
             struct timespec ts = {
                 .tv_sec = 0,
                 .tv_nsec = 1000000,
@@ -842,9 +1026,50 @@ jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer) {
 }
 
 jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t interest) {
-    (void)loop;
-    (void)fd;
-    (void)owner;
-    (void)interest;
-    return JZX_ERR_UNKNOWN;
+    if (!loop || fd < 0 || interest == 0) {
+        return JZX_ERR_INVALID_ARG;
+    }
+    if (!jzx_actor_table_lookup(&loop->actors, owner)) {
+        return JZX_ERR_NO_SUCH_ACTOR;
+    }
+    jzx_io_watch* existing = jzx_io_find(loop, fd, NULL);
+    if (existing) {
+        existing->owner = owner;
+        existing->interest = interest;
+        loop->io_dirty = 1;
+        return JZX_OK;
+    }
+    if (loop->io_count == loop->io_capacity) {
+        jzx_err err = jzx_io_reserve(loop, loop->io_capacity * 2);
+        if (err != JZX_OK) {
+            return err;
+        }
+    }
+    loop->io_watchers[loop->io_count] = (jzx_io_watch){
+        .fd = fd,
+        .owner = owner,
+        .interest = interest,
+        .active = 1,
+    };
+    loop->io_pollfds[loop->io_count] = (struct pollfd){
+        .fd = fd,
+        .events = jzx_io_interest_to_poll(interest),
+        .revents = 0,
+    };
+    loop->io_count++;
+    loop->io_dirty = 1;
+    return JZX_OK;
+}
+
+jzx_err jzx_unwatch_fd(jzx_loop* loop, int fd) {
+    if (!loop || fd < 0) {
+        return JZX_ERR_INVALID_ARG;
+    }
+    uint32_t idx = 0;
+    jzx_io_watch* entry = jzx_io_find(loop, fd, &idx);
+    if (!entry) {
+        return JZX_ERR_IO_NOT_WATCHED;
+    }
+    jzx_io_remove_index(loop, idx);
+    return JZX_OK;
 }

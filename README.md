@@ -3,8 +3,8 @@
 Early scaffold for libjzx, a libxev-backed actor runtime. This repository currently provides:
 
 - C headers in `include/jzx/` describing the public ABI
-- A runnable single-threaded runtime core in `src/` with actor tables, mailboxes, timers, and a cooperative scheduler
-- Zig wrapper + tooling under `zig/`
+- A runnable single-threaded runtime core in `src/` with actor tables, mailboxes, timers, and basic I/O watchers
+- Zig wrapper + tooling under `zig/` (including typed actor helpers)
 - Example programs in `examples/` and a starter test in `zig/tests/`
 
 ## Building
@@ -29,16 +29,20 @@ zig/jzx/        Zig bindings over the C ABI
 zig/tests/      Zig-based integration/unit tests
 examples/c/     Plain C samples
 examples/zig/   Zig samples leveraging the wrapper
+
+### Zig typed actors
+
+The Zig bindings expose `jzx.Actor(State, *Message)` to keep typed state/message handling on the Zig side. See `examples/zig/typed_actor.zig` for a minimal counter.
 ```
 
 ### Quick smoke tests
 
 ```sh
-zig build test        # exercises sync send, async send, and timer delivery from Zig
+zig build test        # exercises sync/async send, timers, and I/O watchers from Zig
 zig build examples    # builds the Zig example and links it against the runtime
 cc examples/c/loop.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_example && /tmp/jzx_example
 ```
 
-These exercises instantiate the runtime, spawn actors, verify timers (`jzx_send_after`), and drive the scheduler until all queued work completes.
+These exercises instantiate the runtime, spawn actors, verify timers/I-O (`jzx_send_after`, `jzx_watch_fd`), and drive the scheduler until all queued work completes.
 
 Each subsystem has its own placeholder implementation so new contributors can iterate on runtime behavior, Zig ergonomics, or examples independently.

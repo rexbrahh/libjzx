@@ -20,6 +20,7 @@ typedef enum {
     JZX_ERR_MAILBOX_FULL = -7,
     JZX_ERR_TIMER_INVALID = -8,
     JZX_ERR_IO_REG_FAILED = -9,
+    JZX_ERR_IO_NOT_WATCHED = -10,
     JZX_ERR_MAX_ACTORS = -11,
 } jzx_err;
 
@@ -42,6 +43,8 @@ typedef struct {
     uint32_t default_mailbox_cap;
     uint32_t max_msgs_per_actor;
     uint32_t max_actors_per_tick;
+    uint32_t max_io_watchers;
+    uint32_t io_poll_timeout_ms;
 } jzx_config;
 
 void jzx_config_init(jzx_config* cfg);
@@ -54,6 +57,8 @@ typedef struct {
     uint32_t tag;
     jzx_actor_id sender;
 } jzx_message;
+
+#define JZX_TAG_SYS_IO 0xFFFF0001u
 
 // --- Behavior --------------------------------------------------------------
 
@@ -120,9 +125,17 @@ jzx_err jzx_send_after(jzx_loop* loop,
 jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer);
 
 jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t interest);
+jzx_err jzx_unwatch_fd(jzx_loop* loop, int fd);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif // JZX_JZX_H
+typedef struct {
+    int fd;
+    uint32_t readiness;
+} jzx_io_event;
+
+#define JZX_IO_READ  (1u << 0)
+#define JZX_IO_WRITE (1u << 1)

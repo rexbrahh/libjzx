@@ -1,6 +1,7 @@
 const std = @import("std");
 const jzx = @import("jzx");
 const c = jzx.c;
+const posix = std.posix;
 
 const AsyncArgs = struct {
     loop: *c.jzx_loop,
@@ -116,4 +117,88 @@ test "cancelled timer does not fire" {
     _ = c.jzx_actor_stop(loop.ptr, actor_id);
     try loop.run();
     try std.testing.expectEqual(@as(u32, 0), state);
+}
+
+const CounterState = struct {
+    total: u32 = 0,
+};
+
+const CounterMsg = struct {
+    value: u32,
+};
+
+fn counterBehavior(state: *CounterState, msg: *CounterMsg, ctx: jzx.ActorContext) jzx.BehaviorResult {
+    _ = ctx;
+    state.total += msg.value;
+    return .stop;
+}
+
+test "typed actor increments state" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var counter = CounterState{};
+    var actor = try jzx.Actor(CounterState, *CounterMsg).spawn(
+        loop.ptr,
+        std.heap.c_allocator,
+        &counter,
+        &counterBehavior,
+        .{},
+    );
+    defer actor.destroy();
+
+    var msg = CounterMsg{ .value = 8 };
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, actor.getId(), &msg, @sizeOf(CounterMsg), 0));
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 8), counter.total);
+}
+
+fn io_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const msg_ptr = @as(*const c.jzx_message, @ptrCast(msg));
+    if (msg_ptr.tag == c.JZX_TAG_SYS_IO and msg_ptr.data != null) {
+        const data_ptr = msg_ptr.data.?;
+        const state_ptr = @as(*u32, @ptrFromInt(@intFromPtr(ctx_ptr.state.?)));
+        const event = @as(*c.jzx_io_event, @ptrFromInt(@intFromPtr(data_ptr)));
+        if ((event.readiness & c.JZX_IO_READ) != 0) {
+            state_ptr.* += 1;
+        }
+        std.c.free(@ptrCast(data_ptr));
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    return c.JZX_BEHAVIOR_OK;
+}
+
+fn pipe_writer(fd: posix.fd_t) void {
+    const msg = "ping";
+    _ = posix.write(fd, msg) catch {};
+}
+
+test "io watcher delivers readiness" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = io_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    const pipefds = try posix.pipe();
+    defer {
+        posix.close(pipefds[0]);
+        posix.close(pipefds[1]);
+    }
+
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_watch_fd(loop.ptr, pipefds[0], actor_id, c.JZX_IO_READ));
+
+    var writer = try std.Thread.spawn(.{}, pipe_writer, .{pipefds[1]});
+    writer.join();
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 1), state);
 }
