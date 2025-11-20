@@ -46,3 +46,13 @@ cc examples/c/loop.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_example &
 These exercises instantiate the runtime, spawn actors, verify timers/I-O (`jzx_send_after`, `jzx_watch_fd`), and drive the scheduler until all queued work completes.
 
 Each subsystem has its own placeholder implementation so new contributors can iterate on runtime behavior, Zig ergonomics, or examples independently.
+
+### Nix + direnv dev shell
+
+The repo ships with a flake-based development shell. If you use [direnv](https://direnv.net/):
+
+```sh
+direnv allow   # loads the flake-defined shell (requires Nix 2.4+)
+```
+
+The shell provides Zig, clang/LLVM, pkg-config, and build tools so `zig build ...` commands Just Work on macOS and Linux.
