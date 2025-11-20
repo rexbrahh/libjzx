@@ -31,6 +31,45 @@ static void jzx_free(jzx_allocator* alloc, void* ptr) {
     }
 }
 
+static jzx_supervisor_state* jzx_supervisor_state_create(const jzx_supervisor_init* init,
+                                                         jzx_allocator* allocator) {
+    if (!init || init->child_count == 0 || !init->children) {
+        return NULL;
+    }
+    jzx_supervisor_state* state =
+        (jzx_supervisor_state*)jzx_alloc(allocator, sizeof(jzx_supervisor_state));
+    if (!state) {
+        return NULL;
+    }
+    memset(state, 0, sizeof(*state));
+    state->config = init->supervisor;
+    state->child_count = init->child_count;
+    size_t bytes = sizeof(jzx_child_state) * init->child_count;
+    state->children = (jzx_child_state*)jzx_alloc(allocator, bytes);
+    if (!state->children) {
+        jzx_free(allocator, state);
+        return NULL;
+    }
+    memset(state->children, 0, bytes);
+    for (size_t i = 0; i < init->child_count; ++i) {
+        state->children[i].spec = init->children[i];
+        state->children[i].id = 0;
+        state->children[i].restart_count = 0;
+        state->children[i].last_restart_ms = 0;
+    }
+    state->intensity_window_count = 0;
+    state->intensity_window_start_ms = 0;
+    return state;
+}
+
+static void jzx_supervisor_state_destroy(jzx_supervisor_state* state, jzx_allocator* allocator) {
+    if (!state) return;
+    if (state->children) {
+        jzx_free(allocator, state->children);
+    }
+    jzx_free(allocator, state);
+}
+
 static uint64_t jzx_now_ms(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -256,9 +295,135 @@ static void jzx_teardown_actor(jzx_loop* loop, jzx_actor* actor) {
         return;
     }
     jzx_io_remove_actor(loop, actor->id);
+    if (actor->supervisor) {
+        jzx_child_exit* ev =
+            (jzx_child_exit*)jzx_alloc(&loop->allocator, sizeof(jzx_child_exit));
+        if (ev) {
+            ev->child = actor->id;
+            ev->status = actor->status;
+            jzx_err err = jzx_send_internal(loop,
+                                            actor->supervisor,
+                                            ev,
+                                            sizeof(jzx_child_exit),
+                                            JZX_TAG_SYS_CHILD_EXIT,
+                                            0);
+            if (err != JZX_OK) {
+                jzx_free(&loop->allocator, ev);
+            }
+        }
+    }
     jzx_mailbox_deinit(&actor->mailbox, &loop->allocator);
     jzx_actor_table_remove(&loop->actors, actor);
+    if (actor->supervisor_state) {
+        jzx_supervisor_state_destroy(actor->supervisor_state, &loop->allocator);
+    }
     jzx_free(&loop->allocator, actor);
+}
+
+// -----------------------------------------------------------------------------
+// Supervisor helpers
+// -----------------------------------------------------------------------------
+
+static jzx_child_state* jzx_supervisor_find_child(jzx_supervisor_state* sup, jzx_actor_id id, size_t* out_idx) {
+    if (!sup) return NULL;
+    for (size_t i = 0; i < sup->child_count; ++i) {
+        if (sup->children[i].id == id) {
+            if (out_idx) {
+                *out_idx = i;
+            }
+            return &sup->children[i];
+        }
+    }
+    return NULL;
+}
+
+static jzx_err jzx_supervisor_spawn_child(jzx_loop* loop,
+                                          jzx_actor_id supervisor_id,
+                                          jzx_child_state* child) {
+    jzx_spawn_opts opts = {
+        .behavior = child->spec.behavior,
+        .state = child->spec.state,
+        .supervisor = supervisor_id,
+        .mailbox_cap = child->spec.mailbox_cap,
+    };
+    child->restart_count = 0;
+    child->last_restart_ms = jzx_now_ms();
+    return jzx_spawn(loop, &opts, &child->id);
+}
+
+static void jzx_supervisor_stop_child(jzx_loop* loop, jzx_child_state* child) {
+    if (child->id != 0) {
+        (void)jzx_actor_stop(loop, child->id);
+        child->id = 0;
+    }
+}
+
+static void jzx_supervisor_restart_strategy(jzx_loop* loop,
+                                            jzx_actor* supervisor_actor,
+                                            size_t failed_idx,
+                                            jzx_supervisor_state* sup) {
+    switch (sup->config.strategy) {
+    case JZX_SUP_ONE_FOR_ONE:
+        sup->children[failed_idx].restart_count += 1;
+        sup->children[failed_idx].last_restart_ms = jzx_now_ms();
+        (void)jzx_supervisor_spawn_child(loop, supervisor_actor->id, &sup->children[failed_idx]);
+        break;
+    case JZX_SUP_ONE_FOR_ALL:
+        for (size_t i = 0; i < sup->child_count; ++i) {
+            jzx_supervisor_stop_child(loop, &sup->children[i]);
+        }
+        for (size_t i = 0; i < sup->child_count; ++i) {
+            sup->children[i].restart_count += 1;
+            sup->children[i].last_restart_ms = jzx_now_ms();
+            (void)jzx_supervisor_spawn_child(loop, supervisor_actor->id, &sup->children[i]);
+        }
+        break;
+    case JZX_SUP_REST_FOR_ONE:
+        for (size_t i = failed_idx; i < sup->child_count; ++i) {
+            jzx_supervisor_stop_child(loop, &sup->children[i]);
+        }
+        for (size_t i = failed_idx; i < sup->child_count; ++i) {
+            sup->children[i].restart_count += 1;
+            sup->children[i].last_restart_ms = jzx_now_ms();
+            (void)jzx_supervisor_spawn_child(loop, supervisor_actor->id, &sup->children[i]);
+        }
+        break;
+    }
+}
+
+static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_message* msg) {
+    jzx_actor* sup_actor = jzx_actor_table_lookup(&ctx->loop->actors, ctx->self);
+    if (!sup_actor || !sup_actor->supervisor_state) {
+        if (msg->data) {
+            jzx_free(&ctx->loop->allocator, msg->data);
+        }
+        return JZX_BEHAVIOR_OK;
+    }
+    jzx_supervisor_state* sup = sup_actor->supervisor_state;
+    if (msg->tag != JZX_TAG_SYS_CHILD_EXIT || !msg->data) {
+        return JZX_BEHAVIOR_OK;
+    }
+    jzx_child_exit* ev = (jzx_child_exit*)msg->data;
+    size_t idx = 0;
+    jzx_child_state* child = jzx_supervisor_find_child(sup, ev->child, &idx);
+    jzx_free(&ctx->loop->allocator, ev);
+    if (!child) {
+        return JZX_BEHAVIOR_OK;
+    }
+    // Clear current id
+    child->id = 0;
+
+    int restart = 0;
+    if (child->spec.mode == JZX_CHILD_PERMANENT) {
+        restart = 1;
+    } else if (child->spec.mode == JZX_CHILD_TRANSIENT &&
+               ev->status == JZX_ACTOR_FAILED) {
+        restart = 1;
+    }
+    if (restart) {
+        jzx_supervisor_restart_strategy(ctx->loop, sup_actor, idx, sup);
+    }
+    return JZX_BEHAVIOR_OK;
 }
 
 // -----------------------------------------------------------------------------
@@ -784,8 +949,8 @@ int jzx_loop_run(jzx_loop* loop) {
                 break;
             }
             actor->in_run_queue = 0;
-            if (actor->status == JZX_ACTOR_STATUS_STOPPING ||
-                actor->status == JZX_ACTOR_STATUS_FAILED) {
+            if (actor->status == JZX_ACTOR_STOPPING ||
+                actor->status == JZX_ACTOR_FAILED) {
                 jzx_teardown_actor(loop, actor);
                 continue;
             }
@@ -804,15 +969,15 @@ int jzx_loop_run(jzx_loop* loop) {
                 jzx_behavior_result result = actor->behavior(&ctx, &msg);
                 processed_msgs++;
                 if (result == JZX_BEHAVIOR_STOP) {
-                    actor->status = JZX_ACTOR_STATUS_STOPPING;
+                    actor->status = JZX_ACTOR_STOPPING;
                     break;
                 } else if (result == JZX_BEHAVIOR_FAIL) {
-                    actor->status = JZX_ACTOR_STATUS_FAILED;
+                    actor->status = JZX_ACTOR_FAILED;
                     break;
                 }
             }
-            if (actor->status == JZX_ACTOR_STATUS_STOPPING ||
-                actor->status == JZX_ACTOR_STATUS_FAILED) {
+            if (actor->status == JZX_ACTOR_STOPPING ||
+                actor->status == JZX_ACTOR_FAILED) {
                 jzx_teardown_actor(loop, actor);
             } else if (jzx_mailbox_has_items(&actor->mailbox)) {
                 jzx_schedule_actor(loop, actor);
@@ -862,7 +1027,7 @@ static jzx_actor* jzx_actor_create(jzx_loop* loop, const jzx_spawn_opts* opts) {
         return NULL;
     }
     memset(actor, 0, sizeof(*actor));
-    actor->status = JZX_ACTOR_STATUS_RUNNING;
+    actor->status = JZX_ACTOR_RUNNING;
     actor->behavior = opts->behavior;
     actor->state = opts->state;
     actor->supervisor = opts->supervisor;
@@ -942,7 +1107,7 @@ jzx_err jzx_actor_stop(jzx_loop* loop, jzx_actor_id id) {
     if (!actor) {
         return JZX_ERR_NO_SUCH_ACTOR;
     }
-    actor->status = JZX_ACTOR_STATUS_STOPPING;
+    actor->status = JZX_ACTOR_STOPPING;
     jzx_schedule_actor(loop, actor);
     return JZX_OK;
 }
@@ -955,8 +1120,56 @@ jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
     if (!actor) {
         return JZX_ERR_NO_SUCH_ACTOR;
     }
-    actor->status = JZX_ACTOR_STATUS_FAILED;
+    actor->status = JZX_ACTOR_FAILED;
     jzx_schedule_actor(loop, actor);
+    return JZX_OK;
+}
+
+// -----------------------------------------------------------------------------
+// Supervisor spawn
+// -----------------------------------------------------------------------------
+
+jzx_err jzx_spawn_supervisor(jzx_loop* loop,
+                            const jzx_supervisor_init* init,
+                            jzx_actor_id parent,
+                            jzx_actor_id* out_id) {
+    if (!loop || !init || !init->children || init->child_count == 0) {
+        return JZX_ERR_INVALID_ARG;
+    }
+    jzx_supervisor_state* state = jzx_supervisor_state_create(init, &loop->allocator);
+    if (!state) {
+        return JZX_ERR_NO_MEMORY;
+    }
+    jzx_spawn_opts opts = {
+        .behavior = jzx_supervisor_behavior,
+        .state = state,
+        .supervisor = parent,
+        .mailbox_cap = 0,
+    };
+    jzx_actor_id sup_id = 0;
+    jzx_err err = jzx_spawn(loop, &opts, &sup_id);
+    if (err != JZX_OK) {
+        jzx_supervisor_state_destroy(state, &loop->allocator);
+        return err;
+    }
+    jzx_actor* sup_actor = jzx_actor_table_lookup(&loop->actors, sup_id);
+    if (!sup_actor) {
+        jzx_supervisor_state_destroy(state, &loop->allocator);
+        return JZX_ERR_UNKNOWN;
+    }
+    sup_actor->supervisor_state = state;
+
+    for (size_t i = 0; i < state->child_count; ++i) {
+        err = jzx_supervisor_spawn_child(loop, sup_id, &state->children[i]);
+        if (err != JZX_OK) {
+            (void)jzx_actor_fail(loop, sup_id);
+            return err;
+        }
+    }
+
+    if (out_id) {
+        *out_id = sup_id;
+    }
     return JZX_OK;
 }
 

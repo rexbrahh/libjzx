@@ -74,6 +74,15 @@ typedef enum {
     JZX_BEHAVIOR_FAIL = 2,
 } jzx_behavior_result;
 
+// Actor status codes for lifecycle/supervision messages.
+typedef enum {
+    JZX_ACTOR_INIT = 0,
+    JZX_ACTOR_RUNNING,
+    JZX_ACTOR_STOPPING,
+    JZX_ACTOR_STOPPED,
+    JZX_ACTOR_FAILED,
+} jzx_actor_status;
+
 typedef jzx_behavior_result (*jzx_behavior_fn)(jzx_context* ctx,
                                                const jzx_message* msg);
 

@@ -12,14 +12,6 @@ typedef struct jzx_async_msg jzx_async_msg;
 typedef struct jzx_timer_entry jzx_timer_entry;
 typedef struct jzx_io_watch jzx_io_watch;
 
-typedef enum {
-    JZX_ACTOR_STATUS_INIT = 0,
-    JZX_ACTOR_STATUS_RUNNING,
-    JZX_ACTOR_STATUS_STOPPING,
-    JZX_ACTOR_STATUS_STOPPED,
-    JZX_ACTOR_STATUS_FAILED,
-} jzx_actor_status;
-
 typedef struct {
     jzx_message* buffer;
     uint32_t capacity;
