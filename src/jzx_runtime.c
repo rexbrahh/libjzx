@@ -93,6 +93,23 @@ static uint64_t jzx_now_ms(void) {
     return (uint64_t)ts.tv_sec * 1000ull + (uint64_t)ts.tv_nsec / 1000000ull;
 }
 
+static uint32_t jzx_sat_add32(uint32_t a, uint32_t b) {
+    uint64_t sum = (uint64_t)a + (uint64_t)b;
+    if (sum > UINT32_MAX) {
+        return UINT32_MAX;
+    }
+    return (uint32_t)sum;
+}
+
+static uint32_t jzx_sat_mul32(uint32_t a, uint32_t b) {
+    if (a == 0 || b == 0) return 0;
+    uint64_t prod = (uint64_t)a * (uint64_t)b;
+    if (prod > UINT32_MAX) {
+        return UINT32_MAX;
+    }
+    return (uint32_t)prod;
+}
+
 static jzx_err jzx_send_internal(jzx_loop* loop,
                                  jzx_actor_id target,
                                  void* data,
@@ -401,6 +418,37 @@ static void jzx_supervisor_schedule_restart(jzx_loop* loop,
     }
 }
 
+static uint32_t jzx_supervisor_compute_delay(const jzx_supervisor_state* sup,
+                                             const jzx_child_state* child) {
+    if (!sup || !child) return 0;
+    uint32_t base = child->spec.restart_delay_ms;
+    jzx_backoff_type strategy = child->spec.backoff;
+    if (strategy == JZX_BACKOFF_NONE) {
+        strategy = sup->config.backoff;
+    }
+    uint32_t step = sup->config.backoff_delay_ms;
+    switch (strategy) {
+    case JZX_BACKOFF_NONE:
+        return base;
+    case JZX_BACKOFF_CONSTANT: {
+        uint32_t extra = jzx_sat_mul32(step, child->restart_count);
+        return jzx_sat_add32(base, extra);
+    }
+    case JZX_BACKOFF_EXPONENTIAL: {
+        uint32_t factor = 1u;
+        uint32_t shifts = child->restart_count;
+        if (shifts >= 31) {
+            factor = UINT32_MAX;
+        } else {
+            factor = 1u << shifts;
+        }
+        uint32_t scaled_base = jzx_sat_mul32(base ? base : step, factor);
+        return scaled_base;
+    }
+    }
+    return base;
+}
+
 static void jzx_supervisor_restart_strategy(jzx_loop* loop,
                                             jzx_actor* supervisor_actor,
                                             size_t failed_idx,
@@ -410,6 +458,7 @@ static void jzx_supervisor_restart_strategy(jzx_loop* loop,
     case JZX_SUP_ONE_FOR_ONE:
         sup->children[failed_idx].restart_count += 1;
         sup->children[failed_idx].last_restart_ms = jzx_now_ms();
+        failed_delay = jzx_supervisor_compute_delay(sup, &sup->children[failed_idx]);
         jzx_supervisor_schedule_restart(loop, supervisor_actor, failed_idx, failed_delay);
         break;
     case JZX_SUP_ONE_FOR_ALL:
@@ -419,7 +468,7 @@ static void jzx_supervisor_restart_strategy(jzx_loop* loop,
         for (size_t i = 0; i < sup->child_count; ++i) {
             sup->children[i].restart_count += 1;
             sup->children[i].last_restart_ms = jzx_now_ms();
-            uint32_t delay = sup->children[i].spec.restart_delay_ms;
+            uint32_t delay = jzx_supervisor_compute_delay(sup, &sup->children[i]);
             jzx_supervisor_schedule_restart(loop, supervisor_actor, i, delay);
         }
         break;
@@ -430,7 +479,7 @@ static void jzx_supervisor_restart_strategy(jzx_loop* loop,
         for (size_t i = failed_idx; i < sup->child_count; ++i) {
             sup->children[i].restart_count += 1;
             sup->children[i].last_restart_ms = jzx_now_ms();
-            uint32_t delay = sup->children[i].spec.restart_delay_ms;
+            uint32_t delay = jzx_supervisor_compute_delay(sup, &sup->children[i]);
             jzx_supervisor_schedule_restart(loop, supervisor_actor, i, delay);
         }
         break;
