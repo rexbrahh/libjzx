@@ -183,5 +183,12 @@ typedef struct {
     uint32_t readiness;
 } jzx_io_event;
 
+#define JZX_TAG_SYS_CHILD_EXIT 0xffff0002u
+
+typedef struct {
+    jzx_actor_id child;
+    jzx_actor_status status;
+} jzx_child_exit;
+
 #define JZX_IO_READ  (1u << 0)
 #define JZX_IO_WRITE (1u << 1)
