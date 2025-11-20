@@ -77,6 +77,24 @@ typedef enum {
 typedef jzx_behavior_result (*jzx_behavior_fn)(jzx_context* ctx,
                                                const jzx_message* msg);
 
+typedef enum {
+    JZX_CHILD_PERMANENT,
+    JZX_CHILD_TRANSIENT,
+    JZX_CHILD_TEMPORARY,
+} jzx_child_mode;
+
+typedef enum {
+    JZX_SUP_ONE_FOR_ONE,
+    JZX_SUP_ONE_FOR_ALL,
+    JZX_SUP_REST_FOR_ONE,
+} jzx_supervisor_strategy;
+
+typedef enum {
+    JZX_BACKOFF_NONE,
+    JZX_BACKOFF_CONSTANT,
+    JZX_BACKOFF_EXPONENTIAL,
+} jzx_backoff_type;
+
 // --- Spawning --------------------------------------------------------------
 
 typedef struct {
@@ -87,6 +105,34 @@ typedef struct {
 } jzx_spawn_opts;
 
 jzx_err jzx_spawn(jzx_loop* loop, const jzx_spawn_opts* opts, jzx_actor_id* out_id);
+
+typedef struct {
+    jzx_behavior_fn behavior;
+    void* state;
+    jzx_child_mode mode;
+    uint32_t mailbox_cap;
+    uint32_t restart_delay_ms;
+    jzx_backoff_type backoff;
+} jzx_child_spec;
+
+typedef struct {
+    jzx_supervisor_strategy strategy;
+    uint32_t intensity;
+    uint32_t period_ms;
+    jzx_backoff_type backoff;
+    uint32_t backoff_delay_ms;
+} jzx_supervisor_spec;
+
+typedef struct {
+    const jzx_child_spec* children;
+    size_t child_count;
+    jzx_supervisor_spec supervisor;
+} jzx_supervisor_init;
+
+jzx_err jzx_spawn_supervisor(jzx_loop* loop,
+                            const jzx_supervisor_init* init,
+                            jzx_actor_id parent,
+                            jzx_actor_id* out_id);
 
 // --- Loop management -------------------------------------------------------
 
