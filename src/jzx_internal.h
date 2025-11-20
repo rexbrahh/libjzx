@@ -3,8 +3,11 @@
 
 #include "jzx/jzx.h"
 
+#include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
+
+typedef struct jzx_async_msg jzx_async_msg;
 
 typedef enum {
     JZX_ACTOR_STATUS_INIT = 0,
@@ -54,6 +57,10 @@ struct jzx_loop {
     jzx_allocator allocator;
     jzx_actor_table actors;
     jzx_run_queue run_queue;
+    pthread_mutex_t async_mutex;
+    uint8_t async_mutex_initialized;
+    jzx_async_msg* async_head;
+    jzx_async_msg* async_tail;
     int running;
     int stop_requested;
 };

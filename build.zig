@@ -13,6 +13,7 @@ fn makeRuntimeModule(
     });
     module.addIncludePath(b.path("include"));
     module.addCSourceFile(.{ .file = b.path("src/jzx_runtime.c") });
+    module.linkSystemLibrary("pthread", .{});
     return module;
 }
 
@@ -51,6 +52,7 @@ pub fn build(b: *std.Build) void {
     });
     jzx_module.addIncludePath(b.path("include"));
     jzx_module.linkLibrary(static_lib);
+    jzx_module.linkSystemLibrary("pthread", .{});
 
     const tests_module = b.createModule(.{
         .root_source_file = b.path("zig/tests/basic.zig"),

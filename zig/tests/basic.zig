@@ -2,6 +2,12 @@ const std = @import("std");
 const jzx = @import("jzx");
 const c = jzx.c;
 
+const AsyncArgs = struct {
+    loop: *c.jzx_loop,
+    actor: c.jzx_actor_id,
+    payload: *u32,
+};
+
 fn increment_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
     const msg_ptr = @as(*const c.jzx_message, @ptrCast(msg));
@@ -33,4 +39,34 @@ test "actor receives and processes a message" {
     try loop.run();
     try std.testing.expectEqual(@as(u32, 5), state);
     try std.testing.expectEqual(c.JZX_ERR_NO_SUCH_ACTOR, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 1));
+}
+
+fn async_sender(args: AsyncArgs) void {
+    _ = c.jzx_send_async(args.loop, args.actor, args.payload, @sizeOf(u32), 2);
+}
+
+test "async send dispatches message" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 7;
+    var thread = try std.Thread.spawn(.{}, async_sender, .{AsyncArgs{
+        .loop = loop.ptr,
+        .actor = actor_id,
+        .payload = &payload,
+    }});
+    thread.join();
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 7), state);
 }

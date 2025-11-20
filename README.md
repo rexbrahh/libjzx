@@ -36,7 +36,7 @@ examples/zig/   Zig samples leveraging the wrapper
 ```sh
 zig build test        # spawns a Zig-defined actor and verifies message delivery
 zig build examples    # builds the Zig example and links it against the runtime
-cc examples/c/loop.c src/jzx_runtime.c -Iinclude -o /tmp/jzx_example && /tmp/jzx_example
+cc examples/c/loop.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_example && /tmp/jzx_example
 ```
 
 These exercises instantiate the runtime, spawn actors, send messages, and drive the scheduler until all queued work completes.
