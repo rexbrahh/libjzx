@@ -20,6 +20,22 @@ fn increment_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) call
     return c.JZX_BEHAVIOR_STOP;
 }
 
+const TimerState = struct {
+    target: u32,
+    hits: u32 = 0,
+};
+
+fn timer_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*TimerState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    _ = msg;
+    state.hits += 1;
+    if (state.hits >= state.target) {
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    return c.JZX_BEHAVIOR_OK;
+}
+
 test "actor receives and processes a message" {
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
@@ -138,6 +154,32 @@ test "cancelled timer does not fire" {
     _ = c.jzx_actor_stop(loop.ptr, actor_id);
     try loop.run();
     try std.testing.expectEqual(@as(u32, 0), state);
+}
+
+test "many timers fire" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    const timer_count: u32 = 32;
+    var timer_state = TimerState{ .target = timer_count };
+    var opts = c.jzx_spawn_opts{
+        .behavior = timer_behavior,
+        .state = &timer_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var timer_ids = [_]c.jzx_timer_id{0} ** timer_count;
+    var payloads = [_]u32{0} ** timer_count;
+    for (&timer_ids, 0..) |tid_ptr, idx| {
+        payloads[idx] = 1;
+        try std.testing.expectEqual(c.JZX_OK, c.jzx_send_after(loop.ptr, actor_id, 1, &payloads[idx], @sizeOf(u32), 0, tid_ptr));
+    }
+
+    try loop.run();
+    try std.testing.expectEqual(timer_count, timer_state.hits);
 }
 
 const PingPongState = struct {
@@ -272,4 +314,37 @@ test "io watcher delivers readiness" {
 
     try loop.run();
     try std.testing.expectEqual(@as(u32, 1), state);
+}
+
+test "io rapid watch and unwatch" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    const pipefds = try posix.pipe();
+    defer {
+        posix.close(pipefds[0]);
+        posix.close(pipefds[1]);
+    }
+
+    for (0..8) |_| {
+        try std.testing.expectEqual(c.JZX_OK, c.jzx_watch_fd(loop.ptr, pipefds[0], actor_id, c.JZX_IO_READ));
+        try std.testing.expectEqual(c.JZX_OK, c.jzx_unwatch_fd(loop.ptr, pipefds[0]));
+    }
+
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_watch_fd(loop.ptr, pipefds[0], actor_id, c.JZX_IO_READ));
+    var writer = try std.Thread.spawn(.{}, pipe_writer, .{pipefds[1]});
+    writer.join();
+
+    try loop.run();
+    try std.testing.expect(state >= 1);
 }
