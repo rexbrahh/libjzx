@@ -1,7 +1,3 @@
-Good call. If we do not pin this down, the design will wander.
-
-Here is a concrete objectives list for **jazz / libjzx**. This is what I will treat as the spec unless you push back.
-
 ---
 
 ## 1. Primary purpose
@@ -151,14 +147,3 @@ Even though this is not hard wired, we should admit this upfront:
 - compaction and merge workers as supervised actors
 - index builders as actors with backoff and restart
 - metrics and health reporting as actors
-
-That gives us concrete, realistic workloads to optimize for instead of designing in a vacuum.
-
----
-
-If you are fine with these, I will treat them as the constraints and in the next step I will:
-
-- define the internal model of "actor + mailbox + scheduler" in more detail
-- then define supervision semantics on top of that
-
-I will not drift into distributed or VM land unless we explicitly open that chapter later.
