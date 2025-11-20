@@ -1,0 +1,36 @@
+const std = @import("std");
+const jzx = @import("jzx");
+const c = jzx.c;
+
+fn increment_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const msg_ptr = @as(*const c.jzx_message, @ptrCast(msg));
+    const state_ptr = @as(*u32, @ptrFromInt(@intFromPtr(ctx_ptr.state.?)));
+    if (msg_ptr.data) |data_ptr| {
+        const value_ptr = @as(*const u32, @ptrFromInt(@intFromPtr(data_ptr)));
+        state_ptr.* += value_ptr.*;
+    }
+    return c.JZX_BEHAVIOR_STOP;
+}
+
+test "actor receives and processes a message" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 5;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 1));
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 5), state);
+    try std.testing.expectEqual(c.JZX_ERR_NO_SUCH_ACTOR, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 1));
+}

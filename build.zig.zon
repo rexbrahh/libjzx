@@ -1,0 +1,19 @@
+.{
+    .name = .libjzx,
+    .version = "0.0.1",
+    .fingerprint = 0x5b762b24f9b0f9a,
+    .minimum_zig_version = "0.15.1",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "include",
+        "src",
+        "zig",
+        "examples",
+        "tests",
+        "README.md",
+        "AGENTS.md",
+        "docs",
+    },
+}
