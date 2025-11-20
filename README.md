@@ -41,6 +41,7 @@ The Zig bindings expose `jzx.Actor(State, *Message)` to keep typed state/message
 zig build test        # exercises sync/async send, timers, and I/O watchers from Zig
 zig build examples    # builds the Zig example and links it against the runtime
 cc examples/c/loop.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_example && /tmp/jzx_example
+cc examples/c/supervisor.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_sup && /tmp/jzx_sup
 ```
 
 These exercises instantiate the runtime, spawn actors, verify timers/I-O (`jzx_send_after`, `jzx_watch_fd`), and drive the scheduler until all queued work completes.
