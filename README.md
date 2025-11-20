@@ -3,7 +3,7 @@
 Early scaffold for libjzx, a libxev-backed actor runtime. This repository currently provides:
 
 - C headers in `include/jzx/` describing the public ABI
-- A runnable single-threaded runtime core in `src/` with actor tables, mailboxes, and a cooperative scheduler
+- A runnable single-threaded runtime core in `src/` with actor tables, mailboxes, timers, and a cooperative scheduler
 - Zig wrapper + tooling under `zig/`
 - Example programs in `examples/` and a starter test in `zig/tests/`
 
@@ -34,11 +34,11 @@ examples/zig/   Zig samples leveraging the wrapper
 ### Quick smoke tests
 
 ```sh
-zig build test        # spawns a Zig-defined actor and verifies message delivery
+zig build test        # exercises sync send, async send, and timer delivery from Zig
 zig build examples    # builds the Zig example and links it against the runtime
 cc examples/c/loop.c src/jzx_runtime.c -Iinclude -lpthread -o /tmp/jzx_example && /tmp/jzx_example
 ```
 
-These exercises instantiate the runtime, spawn actors, send messages, and drive the scheduler until all queued work completes.
+These exercises instantiate the runtime, spawn actors, verify timers (`jzx_send_after`), and drive the scheduler until all queued work completes.
 
 Each subsystem has its own placeholder implementation so new contributors can iterate on runtime behavior, Zig ergonomics, or examples independently.

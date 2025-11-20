@@ -2,15 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct jzx_async_msg {
-    jzx_actor_id target;
-    void* data;
-    size_t len;
-    uint32_t tag;
-    jzx_actor_id sender;
-    struct jzx_async_msg* next;
-} jzx_async_msg;
+#include <time.h>
 
 // -----------------------------------------------------------------------------
 // Utility helpers
@@ -36,6 +28,12 @@ static void jzx_free(jzx_allocator* alloc, void* ptr) {
     if (alloc->free) {
         alloc->free(alloc->ctx, ptr);
     }
+}
+
+static uint64_t jzx_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000ull + (uint64_t)ts.tv_nsec / 1000000ull;
 }
 
 static jzx_err jzx_send_internal(jzx_loop* loop,
@@ -260,7 +258,7 @@ static void jzx_teardown_actor(jzx_loop* loop, jzx_actor* actor) {
 }
 
 // -----------------------------------------------------------------------------
-// Async send queue
+// Async queue
 // -----------------------------------------------------------------------------
 
 static jzx_err jzx_async_queue_init(jzx_loop* loop) {
@@ -291,6 +289,38 @@ static void jzx_async_queue_destroy(jzx_loop* loop) {
     }
 }
 
+static jzx_err jzx_async_enqueue(jzx_loop* loop,
+                                 jzx_actor_id target,
+                                 void* data,
+                                 size_t len,
+                                 uint32_t tag,
+                                 jzx_actor_id sender) {
+    if (!loop || !loop->async_mutex_initialized) {
+        return JZX_ERR_INVALID_ARG;
+    }
+    jzx_async_msg* msg = (jzx_async_msg*)jzx_alloc(&loop->allocator, sizeof(jzx_async_msg));
+    if (!msg) {
+        return JZX_ERR_NO_MEMORY;
+    }
+    msg->target = target;
+    msg->data = data;
+    msg->len = len;
+    msg->tag = tag;
+    msg->sender = sender;
+    msg->next = NULL;
+
+    pthread_mutex_lock(&loop->async_mutex);
+    if (!loop->async_head) {
+        loop->async_head = msg;
+        loop->async_tail = msg;
+    } else {
+        loop->async_tail->next = msg;
+        loop->async_tail = msg;
+    }
+    pthread_mutex_unlock(&loop->async_mutex);
+    return JZX_OK;
+}
+
 static jzx_async_msg* jzx_async_detach(jzx_loop* loop) {
     if (!loop->async_mutex_initialized) {
         return NULL;
@@ -318,6 +348,130 @@ static void jzx_async_drain(jzx_loop* loop) {
     if (head) {
         jzx_async_dispatch(loop, head);
     }
+}
+
+static int jzx_async_has_pending(jzx_loop* loop) {
+    if (!loop->async_mutex_initialized) {
+        return 0;
+    }
+    pthread_mutex_lock(&loop->async_mutex);
+    int has = loop->async_head != NULL;
+    pthread_mutex_unlock(&loop->async_mutex);
+    return has;
+}
+
+// -----------------------------------------------------------------------------
+// Timer system
+// -----------------------------------------------------------------------------
+
+static void jzx_timer_insert_locked(jzx_loop* loop, jzx_timer_entry* entry) {
+    if (!loop->timer_head || entry->due_ms < loop->timer_head->due_ms) {
+        entry->next = loop->timer_head;
+        loop->timer_head = entry;
+        return;
+    }
+    jzx_timer_entry* cur = loop->timer_head;
+    while (cur->next && cur->next->due_ms <= entry->due_ms) {
+        cur = cur->next;
+    }
+    entry->next = cur->next;
+    cur->next = entry;
+}
+
+static void* jzx_timer_thread_main(void* arg) {
+    jzx_loop* loop = (jzx_loop*)arg;
+    pthread_mutex_lock(&loop->timer_mutex);
+    while (!loop->timer_stop) {
+        uint64_t now = jzx_now_ms();
+        jzx_timer_entry* head = loop->timer_head;
+        if (!head) {
+            pthread_cond_wait(&loop->timer_cond, &loop->timer_mutex);
+            continue;
+        }
+        if (head->due_ms > now) {
+            uint64_t wait_ms = head->due_ms - now;
+            struct timespec ts;
+            clock_gettime(CLOCK_REALTIME, &ts);
+            ts.tv_sec += wait_ms / 1000ull;
+            ts.tv_nsec += (wait_ms % 1000ull) * 1000000ull;
+            if (ts.tv_nsec >= 1000000000ull) {
+                ts.tv_sec += 1;
+                ts.tv_nsec -= 1000000000ull;
+            }
+            pthread_cond_timedwait(&loop->timer_cond, &loop->timer_mutex, &ts);
+            continue;
+        }
+        loop->timer_head = head->next;
+        pthread_mutex_unlock(&loop->timer_mutex);
+        jzx_async_enqueue(loop, head->target, head->data, head->len, head->tag, 0);
+        jzx_free(&loop->allocator, head);
+        pthread_mutex_lock(&loop->timer_mutex);
+    }
+    pthread_mutex_unlock(&loop->timer_mutex);
+    return NULL;
+}
+
+static jzx_err jzx_timer_system_init(jzx_loop* loop) {
+    if (pthread_mutex_init(&loop->timer_mutex, NULL) != 0) {
+        return JZX_ERR_UNKNOWN;
+    }
+    if (pthread_cond_init(&loop->timer_cond, NULL) != 0) {
+        pthread_mutex_destroy(&loop->timer_mutex);
+        return JZX_ERR_UNKNOWN;
+    }
+    loop->timer_mutex_initialized = 1;
+    loop->timer_thread_running = 0;
+    loop->timer_stop = 0;
+    loop->timer_head = NULL;
+    loop->next_timer_id = 1;
+    if (pthread_create(&loop->timer_thread, NULL, jzx_timer_thread_main, loop) != 0) {
+        pthread_cond_destroy(&loop->timer_cond);
+        pthread_mutex_destroy(&loop->timer_mutex);
+        loop->timer_mutex_initialized = 0;
+        return JZX_ERR_UNKNOWN;
+    }
+    loop->timer_thread_running = 1;
+    return JZX_OK;
+}
+
+static void jzx_timer_system_shutdown(jzx_loop* loop) {
+    if (!loop->timer_mutex_initialized) {
+        return;
+    }
+    pthread_mutex_lock(&loop->timer_mutex);
+    loop->timer_stop = 1;
+    pthread_cond_broadcast(&loop->timer_cond);
+    pthread_mutex_unlock(&loop->timer_mutex);
+
+    if (loop->timer_thread_running) {
+        pthread_join(loop->timer_thread, NULL);
+        loop->timer_thread_running = 0;
+    }
+
+    pthread_mutex_lock(&loop->timer_mutex);
+    jzx_timer_entry* cur = loop->timer_head;
+    loop->timer_head = NULL;
+    pthread_mutex_unlock(&loop->timer_mutex);
+
+    while (cur) {
+        jzx_timer_entry* next = cur->next;
+        jzx_free(&loop->allocator, cur);
+        cur = next;
+    }
+
+    pthread_cond_destroy(&loop->timer_cond);
+    pthread_mutex_destroy(&loop->timer_mutex);
+    loop->timer_mutex_initialized = 0;
+}
+
+static int jzx_timer_has_pending(jzx_loop* loop) {
+    if (!loop->timer_mutex_initialized) {
+        return 0;
+    }
+    pthread_mutex_lock(&loop->timer_mutex);
+    int has = loop->timer_head != NULL;
+    pthread_mutex_unlock(&loop->timer_mutex);
+    return has;
 }
 
 // -----------------------------------------------------------------------------
@@ -402,6 +556,10 @@ jzx_loop* jzx_loop_create(const jzx_config* cfg) {
         jzx_loop_destroy(loop);
         return NULL;
     }
+    if (jzx_timer_system_init(loop) != JZX_OK) {
+        jzx_loop_destroy(loop);
+        return NULL;
+    }
     loop->running = 0;
     loop->stop_requested = 0;
     return loop;
@@ -411,7 +569,8 @@ void jzx_loop_destroy(jzx_loop* loop) {
     if (!loop) {
         return;
     }
-    // Tear down any remaining actors.
+    jzx_timer_system_shutdown(loop);
+    jzx_async_queue_destroy(loop);
     for (uint32_t i = 0; i < loop->actors.capacity; ++i) {
         jzx_actor* actor = loop->actors.slots ? loop->actors.slots[i] : NULL;
         if (actor) {
@@ -422,7 +581,6 @@ void jzx_loop_destroy(jzx_loop* loop) {
     }
     jzx_actor_table_deinit(&loop->actors, &loop->allocator);
     jzx_run_queue_deinit(&loop->run_queue, &loop->allocator);
-    jzx_async_queue_destroy(loop);
     jzx_free(&loop->allocator, loop);
 }
 
@@ -479,9 +637,18 @@ int jzx_loop_run(jzx_loop* loop) {
             }
             actors_processed++;
         }
-        // Exit the loop once there is no more runnable work.
+
         if (loop->run_queue.count == 0) {
-            break;
+            if (loop->actors.used == 0 &&
+                !jzx_async_has_pending(loop) &&
+                !jzx_timer_has_pending(loop)) {
+                break;
+            }
+            struct timespec ts = {
+                .tv_sec = 0,
+                .tv_nsec = 1000000,
+            };
+            nanosleep(&ts, NULL);
         }
     }
     loop->running = 0;
@@ -494,6 +661,11 @@ void jzx_loop_request_stop(jzx_loop* loop) {
         return;
     }
     loop->stop_requested = 1;
+    if (loop->timer_mutex_initialized) {
+        pthread_mutex_lock(&loop->timer_mutex);
+        pthread_cond_broadcast(&loop->timer_cond);
+        pthread_mutex_unlock(&loop->timer_mutex);
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -575,32 +747,7 @@ jzx_err jzx_send_async(jzx_loop* loop,
                        void* data,
                        size_t len,
                        uint32_t tag) {
-    if (!loop) {
-        return JZX_ERR_INVALID_ARG;
-    }
-    if (!loop->async_mutex_initialized) {
-        return JZX_ERR_LOOP_CLOSED;
-    }
-    jzx_async_msg* msg = (jzx_async_msg*)jzx_alloc(&loop->allocator, sizeof(jzx_async_msg));
-    if (!msg) {
-        return JZX_ERR_NO_MEMORY;
-    }
-    msg->target = target;
-    msg->data = data;
-    msg->len = len;
-    msg->tag = tag;
-    msg->sender = 0;
-    msg->next = NULL;
-    pthread_mutex_lock(&loop->async_mutex);
-    if (!loop->async_head) {
-        loop->async_head = msg;
-        loop->async_tail = msg;
-    } else {
-        loop->async_tail->next = msg;
-        loop->async_tail = msg;
-    }
-    pthread_mutex_unlock(&loop->async_mutex);
-    return JZX_OK;
+    return jzx_async_enqueue(loop, target, data, len, tag, 0);
 }
 
 jzx_err jzx_actor_stop(jzx_loop* loop, jzx_actor_id id) {
@@ -630,7 +777,7 @@ jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
 }
 
 // -----------------------------------------------------------------------------
-// Timers & IO (stubs for future work)
+// Timers & IO
 // -----------------------------------------------------------------------------
 
 jzx_err jzx_send_after(jzx_loop* loop,
@@ -640,22 +787,58 @@ jzx_err jzx_send_after(jzx_loop* loop,
                        size_t len,
                        uint32_t tag,
                        jzx_timer_id* out_timer) {
-    (void)loop;
-    (void)target;
-    (void)ms;
-    (void)data;
-    (void)len;
-    (void)tag;
-    if (out_timer) {
-        *out_timer = 0;
+    if (!loop) {
+        return JZX_ERR_INVALID_ARG;
     }
-    return JZX_ERR_UNKNOWN;
+    if (!jzx_actor_table_lookup(&loop->actors, target)) {
+        return JZX_ERR_NO_SUCH_ACTOR;
+    }
+    jzx_timer_entry* entry = (jzx_timer_entry*)jzx_alloc(&loop->allocator, sizeof(jzx_timer_entry));
+    if (!entry) {
+        return JZX_ERR_NO_MEMORY;
+    }
+    entry->target = target;
+    entry->data = data;
+    entry->len = len;
+    entry->tag = tag;
+    entry->next = NULL;
+
+    pthread_mutex_lock(&loop->timer_mutex);
+    entry->id = loop->next_timer_id++;
+    entry->due_ms = jzx_now_ms() + (uint64_t)ms;
+    jzx_timer_insert_locked(loop, entry);
+    pthread_cond_broadcast(&loop->timer_cond);
+    pthread_mutex_unlock(&loop->timer_mutex);
+
+    if (out_timer) {
+        *out_timer = entry->id;
+    }
+    return JZX_OK;
 }
 
 jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer) {
-    (void)loop;
-    (void)timer;
-    return JZX_ERR_UNKNOWN;
+    if (!loop || !loop->timer_mutex_initialized) {
+        return JZX_ERR_INVALID_ARG;
+    }
+    pthread_mutex_lock(&loop->timer_mutex);
+    jzx_timer_entry* prev = NULL;
+    jzx_timer_entry* cur = loop->timer_head;
+    while (cur) {
+        if (cur->id == timer) {
+            if (prev) {
+                prev->next = cur->next;
+            } else {
+                loop->timer_head = cur->next;
+            }
+            pthread_mutex_unlock(&loop->timer_mutex);
+            jzx_free(&loop->allocator, cur);
+            return JZX_OK;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+    pthread_mutex_unlock(&loop->timer_mutex);
+    return JZX_ERR_TIMER_INVALID;
 }
 
 jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t interest) {

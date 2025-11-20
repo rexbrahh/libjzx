@@ -70,3 +70,50 @@ test "async send dispatches message" {
     try loop.run();
     try std.testing.expectEqual(@as(u32, 7), state);
 }
+
+test "timer delivers message" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 3;
+    var timer_id: c.jzx_timer_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send_after(loop.ptr, actor_id, 5, &payload, @sizeOf(u32), 9, &timer_id));
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 3), state);
+    try std.testing.expectEqual(c.JZX_ERR_TIMER_INVALID, c.jzx_cancel_timer(loop.ptr, timer_id));
+}
+
+test "cancelled timer does not fire" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 11;
+    var timer_id: c.jzx_timer_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send_after(loop.ptr, actor_id, 5, &payload, @sizeOf(u32), 4, &timer_id));
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_cancel_timer(loop.ptr, timer_id));
+
+    _ = c.jzx_actor_stop(loop.ptr, actor_id);
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 0), state);
+}

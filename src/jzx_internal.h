@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 typedef struct jzx_async_msg jzx_async_msg;
+typedef struct jzx_timer_entry jzx_timer_entry;
 
 typedef enum {
     JZX_ACTOR_STATUS_INIT = 0,
@@ -61,8 +62,35 @@ struct jzx_loop {
     uint8_t async_mutex_initialized;
     jzx_async_msg* async_head;
     jzx_async_msg* async_tail;
+    pthread_mutex_t timer_mutex;
+    pthread_cond_t timer_cond;
+    uint8_t timer_mutex_initialized;
+    uint8_t timer_thread_running;
+    pthread_t timer_thread;
+    uint8_t timer_stop;
+    jzx_timer_entry* timer_head;
+    jzx_timer_id next_timer_id;
     int running;
     int stop_requested;
+};
+
+struct jzx_async_msg {
+    jzx_actor_id target;
+    void* data;
+    size_t len;
+    uint32_t tag;
+    jzx_actor_id sender;
+    struct jzx_async_msg* next;
+};
+
+struct jzx_timer_entry {
+    jzx_timer_id id;
+    jzx_actor_id target;
+    void* data;
+    size_t len;
+    uint32_t tag;
+    uint64_t due_ms;
+    struct jzx_timer_entry* next;
 };
 
 #endif
