@@ -380,7 +380,6 @@ static jzx_err jzx_supervisor_spawn_child(jzx_loop* loop,
         .supervisor = supervisor_id,
         .mailbox_cap = child->spec.mailbox_cap,
     };
-    child->restart_count = 0;
     child->last_restart_ms = jzx_now_ms();
     return jzx_spawn(loop, &opts, &child->id);
 }
@@ -1291,6 +1290,24 @@ jzx_err jzx_spawn_supervisor(jzx_loop* loop,
     if (out_id) {
         *out_id = sup_id;
     }
+    return JZX_OK;
+}
+
+jzx_err jzx_supervisor_child_id(jzx_loop* loop,
+                                jzx_actor_id supervisor,
+                                size_t index,
+                                jzx_actor_id* out_id) {
+    if (!loop || !out_id) {
+        return JZX_ERR_INVALID_ARG;
+    }
+    jzx_actor* sup_actor = jzx_actor_table_lookup(&loop->actors, supervisor);
+    if (!sup_actor || !sup_actor->supervisor_state) {
+        return JZX_ERR_NO_SUCH_ACTOR;
+    }
+    if (index >= sup_actor->supervisor_state->child_count) {
+        return JZX_ERR_INVALID_ARG;
+    }
+    *out_id = sup_actor->supervisor_state->children[index].id;
     return JZX_OK;
 }
 

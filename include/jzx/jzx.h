@@ -143,6 +143,11 @@ jzx_err jzx_spawn_supervisor(jzx_loop* loop,
                             jzx_actor_id parent,
                             jzx_actor_id* out_id);
 
+jzx_err jzx_supervisor_child_id(jzx_loop* loop,
+                                jzx_actor_id supervisor,
+                                size_t index,
+                                jzx_actor_id* out_id);
+
 // --- Loop management -------------------------------------------------------
 
 jzx_loop* jzx_loop_create(const jzx_config* cfg);
