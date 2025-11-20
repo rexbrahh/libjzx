@@ -42,6 +42,27 @@ test "actor receives and processes a message" {
     try std.testing.expectEqual(c.JZX_ERR_NO_SUCH_ACTOR, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 1));
 }
 
+test "mailbox full returns error" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 1,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 1;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 0));
+    try std.testing.expectEqual(c.JZX_ERR_MAILBOX_FULL, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 0));
+
+    try loop.run();
+}
+
 fn async_sender(args: AsyncArgs) void {
     _ = c.jzx_send_async(args.loop, args.actor, args.payload, @sizeOf(u32), 2);
 }
@@ -117,6 +138,56 @@ test "cancelled timer does not fire" {
     _ = c.jzx_actor_stop(loop.ptr, actor_id);
     try loop.run();
     try std.testing.expectEqual(@as(u32, 0), state);
+}
+
+const PingPongState = struct {
+    loop: *c.jzx_loop,
+    partner: *?c.jzx_actor_id,
+    remaining: u32,
+    hits: u32,
+};
+
+fn pingPongBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*PingPongState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    _ = msg;
+    state.hits += 1;
+    if (state.remaining == 0) {
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    state.remaining -= 1;
+    if (state.partner.*) |partner_id| {
+        var payload: u32 = 1;
+        _ = c.jzx_send(state.loop, partner_id, &payload, @sizeOf(u32), 0);
+    }
+    return c.JZX_BEHAVIOR_OK;
+}
+
+test "ping pong actors share work fairly" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var id_a: c.jzx_actor_id = 0;
+    var id_b: c.jzx_actor_id = 0;
+    var partner_a: ?c.jzx_actor_id = 0;
+    var partner_b: ?c.jzx_actor_id = 0;
+    var state_a = PingPongState{ .loop = loop.ptr, .partner = &partner_a, .remaining = 10, .hits = 0 };
+    var state_b = PingPongState{ .loop = loop.ptr, .partner = &partner_b, .remaining = 10, .hits = 0 };
+
+    var opts_a = c.jzx_spawn_opts{ .behavior = pingPongBehavior, .state = &state_a, .supervisor = 0, .mailbox_cap = 0 };
+    var opts_b = c.jzx_spawn_opts{ .behavior = pingPongBehavior, .state = &state_b, .supervisor = 0, .mailbox_cap = 0 };
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts_a, &id_a));
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts_b, &id_b));
+    partner_a = id_b;
+    partner_b = id_a;
+
+    var init: u32 = 1;
+    _ = c.jzx_send(loop.ptr, id_a, &init, @sizeOf(u32), 0);
+    _ = c.jzx_send(loop.ptr, id_b, &init, @sizeOf(u32), 0);
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 11), state_a.hits);
+    try std.testing.expectEqual(@as(u32, 11), state_b.hits);
 }
 
 const CounterState = struct {
