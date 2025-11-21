@@ -729,3 +729,111 @@ test "supervisor one_for_all restarts all children" {
     try std.testing.expect(shared.runs_a >= 2);
     try std.testing.expect(shared.runs_b >= 2);
 }
+
+const TrioShared = struct {
+    hits_a: u32 = 0,
+    hits_b: u32 = 0,
+    hits_c: u32 = 0,
+};
+
+const TrioState = struct {
+    shared: *TrioShared,
+    role: enum { A, B, C },
+};
+
+fn trioBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*TrioState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    switch (state.role) {
+    .A => {
+        state.shared.hits_a += 1;
+        if (state.shared.hits_a >= 2 and state.shared.hits_b >= 2 and state.shared.hits_c >= 2) {
+            c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        }
+        return c.JZX_BEHAVIOR_OK;
+    },
+    .B => {
+        state.shared.hits_b += 1;
+        return c.JZX_BEHAVIOR_FAIL; // trigger rest_for_one restart for B and C
+    },
+    .C => {
+        state.shared.hits_c += 1;
+        if (state.shared.hits_c >= 2 and state.shared.hits_a >= 2) {
+            c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        }
+        return c.JZX_BEHAVIOR_OK;
+    },
+    }
+}
+
+test "supervisor rest_for_one restarts downstream children" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var shared = TrioShared{};
+    var state_a = TrioState{ .shared = &shared, .role = .A };
+    var state_b = TrioState{ .shared = &shared, .role = .B };
+    var state_c = TrioState{ .shared = &shared, .role = .C };
+
+    var child_spec = [_]c.jzx_child_spec{
+        .{ .behavior = trioBehavior, .state = &state_a, .mode = c.JZX_CHILD_PERMANENT, .mailbox_cap = 0, .restart_delay_ms = 0, .backoff = c.JZX_BACKOFF_NONE },
+        .{ .behavior = trioBehavior, .state = &state_b, .mode = c.JZX_CHILD_PERMANENT, .mailbox_cap = 0, .restart_delay_ms = 0, .backoff = c.JZX_BACKOFF_NONE },
+        .{ .behavior = trioBehavior, .state = &state_c, .mode = c.JZX_CHILD_PERMANENT, .mailbox_cap = 0, .restart_delay_ms = 0, .backoff = c.JZX_BACKOFF_NONE },
+    };
+
+    var sup_init = c.jzx_supervisor_init{
+        .children = &child_spec,
+        .child_count = child_spec.len,
+        .supervisor = .{
+            .strategy = c.JZX_SUP_REST_FOR_ONE,
+            .intensity = 5,
+            .period_ms = 1000,
+            .backoff = c.JZX_BACKOFF_NONE,
+            .backoff_delay_ms = 0,
+        },
+    };
+
+    var sup_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn_supervisor(loop.ptr, &sup_init, 0, &sup_id));
+    var ids = [_]c.jzx_actor_id{0} ** 3;
+    for (&ids, 0..) |*idptr, idx| {
+        try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, idx, idptr));
+        try std.testing.expect(idptr.* != 0);
+    }
+
+    var runner = try std.Thread.spawn(.{}, struct {
+        fn run(lp: *jzx.Loop) void {
+            _ = lp.run() catch {};
+        }
+    }.run, .{&loop});
+
+    // Initial messages to all three
+    for (ids) |idval| {
+        _ = c.jzx_send(loop.ptr, idval, null, 0, 0);
+    }
+
+    // Allow restarts to settle
+    std.Thread.sleep(20 * std.time.ns_per_ms);
+    for (&ids, 0..) |*idptr, idx| {
+        _ = c.jzx_supervisor_child_id(loop.ptr, sup_id, idx, idptr);
+    }
+    // Second round after restart for B and C
+    for (ids) |idval| {
+        if (idval != 0) {
+            _ = c.jzx_send(loop.ptr, idval, null, 0, 0);
+        }
+    }
+
+    var attempts: u16 = 0;
+    while (attempts < 50 and !(shared.hits_a >= 2 and shared.hits_b >= 2 and shared.hits_c >= 2)) : (attempts += 1) {
+        std.Thread.sleep(10 * std.time.ns_per_ms);
+    }
+    loop.requestStop();
+
+    runner.join();
+
+    try std.testing.expect(shared.hits_a >= 2);
+    try std.testing.expect(shared.hits_b >= 2);
+    try std.testing.expect(shared.hits_c >= 2);
+}
