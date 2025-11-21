@@ -546,3 +546,109 @@ test "supervisor backoff delays restart" {
     try std.testing.expectEqual(@as(u32, 2), state.runs);
     try std.testing.expect(state.t2_ms >= state.t1_ms + 50);
 }
+
+const DuoShared = struct {
+    runs_a: u32 = 0,
+    runs_b: u32 = 0,
+};
+
+const DuoState = struct {
+    shared: *DuoShared,
+    is_a: bool,
+};
+
+fn duoBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*DuoState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    if (state.is_a) {
+        state.shared.runs_a += 1;
+        if (state.shared.runs_a >= 2 and state.shared.runs_b >= 2) {
+            c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        }
+        return c.JZX_BEHAVIOR_OK;
+    } else {
+        state.shared.runs_b += 1;
+        if (state.shared.runs_b == 1) {
+            return c.JZX_BEHAVIOR_FAIL;
+        }
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+}
+
+test "supervisor one_for_all restarts all children" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var shared = DuoShared{};
+    var state_a = DuoState{ .shared = &shared, .is_a = true };
+    var state_b = DuoState{ .shared = &shared, .is_a = false };
+
+    var child_spec = [_]c.jzx_child_spec{
+        .{
+            .behavior = duoBehavior,
+            .state = &state_a,
+            .mode = c.JZX_CHILD_PERMANENT,
+            .mailbox_cap = 0,
+            .restart_delay_ms = 0,
+            .backoff = c.JZX_BACKOFF_NONE,
+        },
+        .{
+            .behavior = duoBehavior,
+            .state = &state_b,
+            .mode = c.JZX_CHILD_PERMANENT,
+            .mailbox_cap = 0,
+            .restart_delay_ms = 0,
+            .backoff = c.JZX_BACKOFF_NONE,
+        },
+    };
+
+    var sup_init = c.jzx_supervisor_init{
+        .children = &child_spec,
+        .child_count = child_spec.len,
+        .supervisor = .{
+            .strategy = c.JZX_SUP_ONE_FOR_ALL,
+            .intensity = 5,
+            .period_ms = 1000,
+            .backoff = c.JZX_BACKOFF_NONE,
+            .backoff_delay_ms = 0,
+        },
+    };
+
+    var sup_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn_supervisor(loop.ptr, &sup_init, 0, &sup_id));
+
+    var id_a: c.jzx_actor_id = 0;
+    var id_b: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &id_a));
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 1, &id_b));
+    try std.testing.expect(id_a != 0);
+    try std.testing.expect(id_b != 0);
+
+    var runner = try std.Thread.spawn(.{}, struct {
+        fn run(lp: *jzx.Loop) void {
+            _ = lp.run() catch {};
+        }
+    }.run, .{&loop});
+
+    // First round: start both, B fails.
+    _ = c.jzx_send(loop.ptr, id_a, null, 0, 0);
+    _ = c.jzx_send(loop.ptr, id_b, null, 0, 0);
+
+    // Wait for restart to occur and fetch new ids.
+    std.Thread.sleep(20 * std.time.ns_per_ms);
+    _ = c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &id_a);
+    _ = c.jzx_supervisor_child_id(loop.ptr, sup_id, 1, &id_b);
+    try std.testing.expect(id_a != 0);
+    try std.testing.expect(id_b != 0);
+
+    // Second round after restart.
+    _ = c.jzx_send(loop.ptr, id_a, null, 0, 0);
+    _ = c.jzx_send(loop.ptr, id_b, null, 0, 0);
+
+    runner.join();
+
+    try std.testing.expect(shared.runs_a >= 2);
+    try std.testing.expect(shared.runs_b >= 2);
+}
