@@ -348,3 +348,129 @@ test "io rapid watch and unwatch" {
     try loop.run();
     try std.testing.expect(state >= 1);
 }
+
+const RestartState = struct {
+    runs: u32 = 0,
+};
+
+fn failThenStop(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*RestartState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    state.runs += 1;
+    return if (state.runs == 1) c.JZX_BEHAVIOR_FAIL else c.JZX_BEHAVIOR_STOP;
+}
+
+test "supervisor restarts transient child once" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var child_state = RestartState{};
+    var child_spec = [_]c.jzx_child_spec{.{
+        .behavior = failThenStop,
+        .state = &child_state,
+        .mode = c.JZX_CHILD_TRANSIENT,
+        .mailbox_cap = 0,
+        .restart_delay_ms = 0,
+        .backoff = c.JZX_BACKOFF_NONE,
+    }};
+    var sup_init = c.jzx_supervisor_init{
+        .children = &child_spec,
+        .child_count = child_spec.len,
+        .supervisor = .{
+            .strategy = c.JZX_SUP_ONE_FOR_ONE,
+            .intensity = 5,
+            .period_ms = 1000,
+            .backoff = c.JZX_BACKOFF_NONE,
+            .backoff_delay_ms = 0,
+        },
+    };
+
+    var sup_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn_supervisor(loop.ptr, &sup_init, 0, &sup_id));
+
+    var child_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
+    try std.testing.expect(child_id != 0);
+
+    var runner = try std.Thread.spawn(.{}, struct {
+        fn run(lp: *jzx.Loop) void {
+            _ = lp.run() catch {};
+        }
+    }.run, .{&loop});
+
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, child_id, null, 0, 0));
+    std.Thread.sleep(10 * std.time.ns_per_ms);
+
+    // After restart, child id may change; fetch and send again.
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
+    try std.testing.expect(child_id != 0);
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, child_id, null, 0, 0));
+
+    std.Thread.sleep(20 * std.time.ns_per_ms);
+    loop.requestStop();
+
+    runner.join();
+
+    try std.testing.expectEqual(@as(u32, 2), child_state.runs);
+}
+
+fn alwaysFail(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*RestartState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    state.runs += 1;
+    return c.JZX_BEHAVIOR_FAIL;
+}
+
+test "supervisor escalates when intensity exceeded" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var child_state = RestartState{};
+    var child_spec = [_]c.jzx_child_spec{.{
+        .behavior = alwaysFail,
+        .state = &child_state,
+        .mode = c.JZX_CHILD_TRANSIENT,
+        .mailbox_cap = 0,
+        .restart_delay_ms = 0,
+        .backoff = c.JZX_BACKOFF_NONE,
+    }};
+    var sup_init = c.jzx_supervisor_init{
+        .children = &child_spec,
+        .child_count = child_spec.len,
+        .supervisor = .{
+            .strategy = c.JZX_SUP_ONE_FOR_ONE,
+            .intensity = 2,
+            .period_ms = 1000,
+            .backoff = c.JZX_BACKOFF_NONE,
+            .backoff_delay_ms = 0,
+        },
+    };
+
+    var sup_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn_supervisor(loop.ptr, &sup_init, 0, &sup_id));
+
+    var child_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
+    try std.testing.expect(child_id != 0);
+
+    var runner = try std.Thread.spawn(.{}, struct {
+        fn run(lp: *jzx.Loop) void {
+            _ = lp.run() catch {};
+        }
+    }.run, .{&loop});
+
+    // Drive three failures to exceed intensity window.
+    for (0..3) |_| {
+        try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
+        try std.testing.expect(child_id != 0);
+        _ = c.jzx_send(loop.ptr, child_id, null, 0, 0);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
+    }
+
+    loop.requestStop();
+    runner.join();
+
+    try std.testing.expectEqual(@as(u32, 3), child_state.runs);
+}
