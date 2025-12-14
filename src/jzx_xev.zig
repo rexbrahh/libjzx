@@ -1,5 +1,6 @@
 const std = @import("std");
 const xev = @import("xev");
+const Xev = xev.Dynamic;
 
 const c = @cImport({
     @cInclude("jzx/jzx.h");
@@ -7,40 +8,48 @@ const c = @cImport({
 
 extern fn jzx_io_xev_notify(loop: *c.jzx_loop, fd: c_int, readiness: u32) u8;
 
+const Loop = Xev.Loop;
+const Async = Xev.Async;
+const Completion = Xev.Completion;
+
 const Watch = struct {
     loop: *c.jzx_loop,
     fd: c_int,
     interest: u32,
     removed: bool = false,
 
-    read: xev.Completion = .{},
-    read_cancel: xev.Completion = .{},
-    write: xev.Completion = .{},
-    write_cancel: xev.Completion = .{},
+    read: Completion = .{},
+    read_cancel: Completion = .{},
+    write: Completion = .{},
+    write_cancel: Completion = .{},
 };
 
 pub const XevState = struct {
-    loop: xev.Loop,
-    wake: xev.Async,
-    wake_completion: xev.Completion = .{},
-    wake_cancel: xev.Completion = .{},
+    loop: Loop,
+    wake: Async,
+    wake_completion: Completion = .{},
+    wake_cancel: Completion = .{},
 
     watches: std.ArrayListUnmanaged(*Watch) = .{},
 
     pub fn deinit(self: *XevState) void {
         const allocator = std.heap.c_allocator;
+        self.wake.deinit();
+        self.loop.deinit();
         for (self.watches.items) |watch| {
             allocator.destroy(watch);
         }
         self.watches.deinit(allocator);
-        self.wake.deinit();
-        self.loop.deinit();
         self.* = undefined;
     }
 };
 
 fn supportsPollOps() bool {
-    return switch (xev.backend) {
+    if (comptime Xev.dynamic) {
+        return true;
+    }
+
+    return switch (Xev.backend) {
         .io_uring, .epoll, .kqueue => true,
         else => false,
     };
@@ -71,9 +80,36 @@ fn ensureWatch(state: *XevState, loop: *c.jzx_loop, fd: c_int) !*Watch {
     return watch;
 }
 
-fn cancelIfNeeded(state: *XevState, target: *xev.Completion, cancel: *xev.Completion) void {
+fn cancelIfNeeded(state: *XevState, target: *Completion, cancel: *Completion) void {
     if (target.state() == .dead) return;
     if (cancel.state() != .dead) return;
+
+    if (comptime Xev.dynamic) {
+        switch (Xev.backend) {
+            inline else => |tag| {
+                cancel.ensureTag(tag);
+                const api = (comptime Xev.superset(tag)).Api();
+                const api_cb = (struct {
+                    fn callback(
+                        _: ?*anyopaque,
+                        _: *api.Loop,
+                        _: *api.Completion,
+                        _: api.Result,
+                    ) api.CallbackAction {
+                        return .disarm;
+                    }
+                }).callback;
+
+                @field(cancel.value, @tagName(tag)) = .{
+                    .op = .{ .cancel = .{ .c = &@field(target.value, @tagName(tag)) } },
+                    .userdata = null,
+                    .callback = api_cb,
+                };
+                @field(state.loop.backend, @tagName(tag)).add(&@field(cancel.value, @tagName(tag)));
+            },
+        }
+        return;
+    }
 
     cancel.* = .{
         .op = .{ .cancel = .{ .c = target } },
@@ -83,11 +119,11 @@ fn cancelIfNeeded(state: *XevState, target: *xev.Completion, cancel: *xev.Comple
     state.loop.add(cancel);
 }
 
-fn cancelCallback(_: ?*anyopaque, _: *xev.Loop, _: *xev.Completion, _: xev.Result) xev.CallbackAction {
+fn cancelCallback(_: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     return .disarm;
 }
 
-fn readCallback(ud: ?*anyopaque, _: *xev.Loop, _: *xev.Completion, _: xev.Result) xev.CallbackAction {
+fn readCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     const watch = @as(*Watch, @ptrCast(@alignCast(ud.?)));
     if (watch.removed or (watch.interest & c.JZX_IO_READ) == 0) {
         return .disarm;
@@ -96,7 +132,7 @@ fn readCallback(ud: ?*anyopaque, _: *xev.Loop, _: *xev.Completion, _: xev.Result
     return if (ok) .rearm else .disarm;
 }
 
-fn writeCallback(ud: ?*anyopaque, _: *xev.Loop, _: *xev.Completion, _: xev.Result) xev.CallbackAction {
+fn writeCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     const watch = @as(*Watch, @ptrCast(@alignCast(ud.?)));
     if (watch.removed or (watch.interest & c.JZX_IO_WRITE) == 0) {
         return .disarm;
@@ -109,8 +145,44 @@ fn armRead(state: *XevState, watch: *Watch) void {
     if (!supportsPollOps()) return;
     if (watch.read.state() != .dead) return;
 
+    if (comptime Xev.dynamic) {
+        switch (Xev.backend) {
+            inline else => |tag| {
+                watch.read.ensureTag(tag);
+                const api = (comptime Xev.superset(tag)).Api();
+                const api_cb = (struct {
+                    fn callback(
+                        ud: ?*anyopaque,
+                        _: *api.Loop,
+                        _: *api.Completion,
+                        _: api.Result,
+                    ) api.CallbackAction {
+                        const watch_ptr = @as(*Watch, @ptrCast(@alignCast(ud.?)));
+                        if (watch_ptr.removed or (watch_ptr.interest & c.JZX_IO_READ) == 0) {
+                            return .disarm;
+                        }
+                        const ok = jzx_io_xev_notify(watch_ptr.loop, watch_ptr.fd, c.JZX_IO_READ) != 0;
+                        return if (ok) .rearm else .disarm;
+                    }
+                }).callback;
+
+                @field(watch.read.value, @tagName(tag)) = .{
+                    .op = switch (comptime Xev.superset(tag)) {
+                        .io_uring => .{ .poll = .{ .fd = watch.fd, .events = std.posix.POLL.IN } },
+                        .epoll => .{ .poll = .{ .fd = watch.fd, .events = std.os.linux.EPOLL.IN } },
+                        else => unreachable,
+                    },
+                    .userdata = watch,
+                    .callback = api_cb,
+                };
+                @field(state.loop.backend, @tagName(tag)).add(&@field(watch.read.value, @tagName(tag)));
+            },
+        }
+        return;
+    }
+
     watch.read = .{
-        .op = switch (xev.backend) {
+        .op = switch (Xev.backend) {
             .io_uring => .{ .poll = .{ .fd = watch.fd, .events = std.posix.POLL.IN } },
             .epoll => .{ .poll = .{ .fd = watch.fd, .events = std.os.linux.EPOLL.IN } },
             .kqueue => .{ .read = .{ .fd = watch.fd, .buffer = .{ .slice = &.{} } } },
@@ -126,8 +198,44 @@ fn armWrite(state: *XevState, watch: *Watch) void {
     if (!supportsPollOps()) return;
     if (watch.write.state() != .dead) return;
 
+    if (comptime Xev.dynamic) {
+        switch (Xev.backend) {
+            inline else => |tag| {
+                watch.write.ensureTag(tag);
+                const api = (comptime Xev.superset(tag)).Api();
+                const api_cb = (struct {
+                    fn callback(
+                        ud: ?*anyopaque,
+                        _: *api.Loop,
+                        _: *api.Completion,
+                        _: api.Result,
+                    ) api.CallbackAction {
+                        const watch_ptr = @as(*Watch, @ptrCast(@alignCast(ud.?)));
+                        if (watch_ptr.removed or (watch_ptr.interest & c.JZX_IO_WRITE) == 0) {
+                            return .disarm;
+                        }
+                        const ok = jzx_io_xev_notify(watch_ptr.loop, watch_ptr.fd, c.JZX_IO_WRITE) != 0;
+                        return if (ok) .rearm else .disarm;
+                    }
+                }).callback;
+
+                @field(watch.write.value, @tagName(tag)) = .{
+                    .op = switch (comptime Xev.superset(tag)) {
+                        .io_uring => .{ .poll = .{ .fd = watch.fd, .events = std.posix.POLL.OUT } },
+                        .epoll => .{ .poll = .{ .fd = watch.fd, .events = std.os.linux.EPOLL.OUT } },
+                        else => unreachable,
+                    },
+                    .userdata = watch,
+                    .callback = api_cb,
+                };
+                @field(state.loop.backend, @tagName(tag)).add(&@field(watch.write.value, @tagName(tag)));
+            },
+        }
+        return;
+    }
+
     watch.write = .{
-        .op = switch (xev.backend) {
+        .op = switch (Xev.backend) {
             .io_uring => .{ .poll = .{ .fd = watch.fd, .events = std.posix.POLL.OUT } },
             .epoll => .{ .poll = .{ .fd = watch.fd, .events = std.os.linux.EPOLL.OUT } },
             .kqueue => .{ .write = .{ .fd = watch.fd, .buffer = .{ .slice = &.{} } } },
@@ -181,7 +289,7 @@ fn sweep(state: *XevState) void {
     }
 }
 
-fn wakeCallback(_: ?*void, _: *xev.Loop, _: *xev.Completion, result: xev.Async.WaitError!void) xev.CallbackAction {
+fn wakeCallback(_: ?*void, _: *Loop, _: *Completion, result: Async.WaitError!void) Xev.CallbackAction {
     _ = result catch return .disarm;
     return .rearm;
 }
@@ -195,10 +303,21 @@ pub export fn jzx_xev_create() ?*XevState {
     const state = allocator.create(XevState) catch return null;
     errdefer allocator.destroy(state);
 
-    const loop = xev.Loop.init(.{}) catch return null;
+    var loop: Loop = undefined;
+    if (comptime Xev.dynamic) {
+        var selected: ?Loop = null;
+        for (Xev.candidates) |candidate| {
+            if (!Xev.prefer(candidate)) continue;
+            selected = Loop.init(.{}) catch continue;
+            break;
+        }
+        loop = selected orelse return null;
+    } else {
+        loop = Loop.init(.{}) catch return null;
+    }
     errdefer loop.deinit();
 
-    const wake = xev.Async.init() catch return null;
+    const wake = Async.init() catch return null;
     errdefer wake.deinit();
 
     state.* = .{
@@ -213,23 +332,6 @@ pub export fn jzx_xev_create() ?*XevState {
 pub export fn jzx_xev_destroy(state: *XevState) void {
     if (@intFromPtr(state) == 0) return;
 
-    for (state.watches.items) |watch| {
-        watch.removed = true;
-        syncWatch(state, watch);
-    }
-    cancelIfNeeded(state, &state.wake_completion, &state.wake_cancel);
-
-    var ticks: usize = 0;
-    while (ticks < 64) : (ticks += 1) {
-        _ = state.loop.run(.no_wait) catch {};
-        sweep(state);
-        if (state.watches.items.len == 0 and state.wake_completion.state() == .dead and
-            state.wake_cancel.state() == .dead)
-        {
-            break;
-        }
-    }
-
     state.deinit();
     std.heap.c_allocator.destroy(state);
 }
@@ -241,7 +343,7 @@ pub export fn jzx_xev_wakeup(state: *XevState) void {
 
 pub export fn jzx_xev_run(state: *XevState, mode: c_int) void {
     if (@intFromPtr(state) == 0) return;
-    const run_mode: xev.RunMode = switch (mode) {
+    const run_mode: Xev.RunMode = switch (mode) {
         0 => .no_wait,
         1 => .once,
         else => .no_wait,

@@ -1113,7 +1113,13 @@ int jzx_loop_run(jzx_loop* loop) {
         if (loop->run_queue.count == 0) {
             if (loop->actors.used == 0 && !jzx_async_has_pending(loop) &&
                 !jzx_timer_has_pending(loop) && loop->io_count == 0) {
+                for (uint32_t i = 0; i < 64; ++i) {
+                    jzx_xev_run(loop->xev, 0);
+                }
                 break;
+            }
+            if (jzx_async_has_pending(loop)) {
+                continue;
             }
             jzx_xev_run(loop->xev, 1);
         }
