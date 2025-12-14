@@ -1,12 +1,8 @@
 #include "jzx_internal.h"
 
-#include <errno.h>
-#include <fcntl.h>
-#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 
 // -----------------------------------------------------------------------------
 // Utility helpers
@@ -122,82 +118,14 @@ static jzx_err jzx_send_internal(jzx_loop* loop, jzx_actor_id target, void* data
 static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor);
 
 // -----------------------------------------------------------------------------
-// Wakeup fd helpers
+// Wakeup helpers
 // -----------------------------------------------------------------------------
 
-static int jzx_set_fd_flags(int fd, int flags) {
-    int cur = fcntl(fd, F_GETFL);
-    if (cur == -1) {
-        return -1;
-    }
-    return fcntl(fd, F_SETFL, cur | flags);
-}
-
-static int jzx_set_fd_cloexec(int fd) {
-    int cur = fcntl(fd, F_GETFD);
-    if (cur == -1) {
-        return -1;
-    }
-    return fcntl(fd, F_SETFD, cur | FD_CLOEXEC);
-}
-
-static jzx_err jzx_wakeup_init(jzx_loop* loop) {
-    loop->wakeup_read_fd = -1;
-    loop->wakeup_write_fd = -1;
-
-    int fds[2];
-    if (pipe(fds) != 0) {
-        return JZX_ERR_UNKNOWN;
-    }
-    if (jzx_set_fd_flags(fds[0], O_NONBLOCK) != 0 || jzx_set_fd_flags(fds[1], O_NONBLOCK) != 0 ||
-        jzx_set_fd_cloexec(fds[0]) != 0 || jzx_set_fd_cloexec(fds[1]) != 0) {
-        close(fds[0]);
-        close(fds[1]);
-        return JZX_ERR_UNKNOWN;
-    }
-    loop->wakeup_read_fd = fds[0];
-    loop->wakeup_write_fd = fds[1];
-    return JZX_OK;
-}
-
-static void jzx_wakeup_deinit(jzx_loop* loop) {
-    if (loop->wakeup_read_fd >= 0) {
-        close(loop->wakeup_read_fd);
-    }
-    if (loop->wakeup_write_fd >= 0) {
-        close(loop->wakeup_write_fd);
-    }
-    loop->wakeup_read_fd = -1;
-    loop->wakeup_write_fd = -1;
-}
-
 static void jzx_wakeup_signal(jzx_loop* loop) {
-    if (!loop || loop->wakeup_write_fd < 0) {
+    if (!loop || !loop->xev) {
         return;
     }
-    uint8_t byte = 0;
-    ssize_t rc = write(loop->wakeup_write_fd, &byte, 1);
-    (void)rc;
-}
-
-static void jzx_wakeup_drain(jzx_loop* loop) {
-    if (!loop || loop->wakeup_read_fd < 0) {
-        return;
-    }
-    uint8_t buf[64];
-    while (1) {
-        ssize_t rc = read(loop->wakeup_read_fd, buf, sizeof(buf));
-        if (rc > 0) {
-            continue;
-        }
-        if (rc == 0) {
-            return;
-        }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            return;
-        }
-        return;
-    }
+    jzx_xev_wakeup(loop->xev);
 }
 
 // -----------------------------------------------------------------------------
@@ -898,19 +826,12 @@ static int jzx_timer_has_pending(jzx_loop* loop) {
 static jzx_err jzx_io_init(jzx_loop* loop, uint32_t capacity) {
     loop->io_capacity = capacity ? capacity : 1;
     loop->io_count = 0;
-    loop->io_dirty = 1;
     loop->io_watchers =
         (jzx_io_watch*)jzx_alloc(&loop->allocator, sizeof(jzx_io_watch) * loop->io_capacity);
     if (!loop->io_watchers) {
         return JZX_ERR_NO_MEMORY;
     }
     memset(loop->io_watchers, 0, sizeof(jzx_io_watch) * loop->io_capacity);
-    loop->io_pollfds =
-        (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * loop->io_capacity);
-    if (!loop->io_pollfds) {
-        return JZX_ERR_NO_MEMORY;
-    }
-    memset(loop->io_pollfds, 0, sizeof(struct pollfd) * loop->io_capacity);
     return JZX_OK;
 }
 
@@ -918,10 +839,6 @@ static void jzx_io_deinit(jzx_loop* loop) {
     if (loop->io_watchers) {
         jzx_free(&loop->allocator, loop->io_watchers);
         loop->io_watchers = NULL;
-    }
-    if (loop->io_pollfds) {
-        jzx_free(&loop->allocator, loop->io_pollfds);
-        loop->io_pollfds = NULL;
     }
     loop->io_capacity = 0;
     loop->io_count = 0;
@@ -933,26 +850,13 @@ static jzx_err jzx_io_reserve(jzx_loop* loop, uint32_t new_cap) {
     if (!new_watchers) {
         return JZX_ERR_NO_MEMORY;
     }
-    struct pollfd* new_pollfds =
-        (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * new_cap);
-    if (!new_pollfds) {
-        jzx_free(&loop->allocator, new_watchers);
-        return JZX_ERR_NO_MEMORY;
-    }
     memset(new_watchers, 0, sizeof(jzx_io_watch) * new_cap);
-    memset(new_pollfds, 0, sizeof(struct pollfd) * new_cap);
     if (loop->io_watchers) {
         memcpy(new_watchers, loop->io_watchers, sizeof(jzx_io_watch) * loop->io_count);
         jzx_free(&loop->allocator, loop->io_watchers);
     }
-    if (loop->io_pollfds) {
-        memcpy(new_pollfds, loop->io_pollfds, sizeof(struct pollfd) * loop->io_count);
-        jzx_free(&loop->allocator, loop->io_pollfds);
-    }
     loop->io_watchers = new_watchers;
-    loop->io_pollfds = new_pollfds;
     loop->io_capacity = new_cap;
-    loop->io_dirty = 1;
     return JZX_OK;
 }
 
@@ -972,13 +876,14 @@ static void jzx_io_remove_index(jzx_loop* loop, uint32_t idx) {
     if (idx >= loop->io_count) {
         return;
     }
+    if (loop->xev) {
+        jzx_xev_unwatch_fd(loop->xev, loop->io_watchers[idx].fd);
+    }
     uint32_t last = loop->io_count - 1;
     if (idx != last) {
         loop->io_watchers[idx] = loop->io_watchers[last];
-        loop->io_pollfds[idx] = loop->io_pollfds[last];
     }
     loop->io_count--;
-    loop->io_dirty = 1;
 }
 
 static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor) {
@@ -991,89 +896,33 @@ static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor) {
     }
 }
 
-static short jzx_io_interest_to_poll(uint32_t interest) {
-    short mask = 0;
-    if (interest & JZX_IO_READ) {
-        mask |= POLLIN | POLLERR | POLLHUP | POLLNVAL;
+uint8_t jzx_io_xev_notify(jzx_loop* loop, int fd, uint32_t readiness) {
+    if (!loop || !loop->running || fd < 0 || readiness == 0) {
+        return 0;
     }
-    if (interest & JZX_IO_WRITE) {
-        mask |= POLLOUT | POLLERR | POLLHUP | POLLNVAL;
-    }
-    return mask;
-}
 
-static uint32_t jzx_io_revents_to_readiness(short revents) {
-    uint32_t readiness = 0;
-    if (revents & (POLLIN | POLLERR | POLLHUP | POLLNVAL)) {
-        readiness |= JZX_IO_READ;
+    uint32_t idx = 0;
+    jzx_io_watch* watch = jzx_io_find(loop, fd, &idx);
+    if (!watch) {
+        return 0;
     }
-    if (revents & (POLLOUT)) {
-        readiness |= JZX_IO_WRITE;
+    if (!jzx_actor_table_lookup(&loop->actors, watch->owner)) {
+        jzx_io_remove_index(loop, idx);
+        return 0;
     }
-    return readiness;
-}
 
-static void jzx_io_rebuild_pollfds(jzx_loop* loop) {
-    if (!loop->io_dirty) {
-        return;
+    jzx_io_event* ev = (jzx_io_event*)jzx_alloc(&loop->allocator, sizeof(jzx_io_event));
+    if (!ev) {
+        return 1;
     }
-    for (uint32_t i = 0; i < loop->io_count; ++i) {
-        loop->io_pollfds[i].fd = loop->io_watchers[i].fd;
-        loop->io_pollfds[i].events = jzx_io_interest_to_poll(loop->io_watchers[i].interest);
-        loop->io_pollfds[i].revents = 0;
+    ev->fd = fd;
+    ev->readiness = readiness;
+    jzx_err err =
+        jzx_send_internal(loop, watch->owner, ev, sizeof(jzx_io_event), JZX_TAG_SYS_IO, 0);
+    if (err != JZX_OK) {
+        jzx_free(&loop->allocator, ev);
     }
-    loop->io_dirty = 0;
-}
-
-static void jzx_io_poll(jzx_loop* loop, uint32_t timeout_ms) {
-    uint8_t use_wakeup = loop->wakeup_read_fd >= 0;
-    uint32_t nfds = loop->io_count + (use_wakeup ? 1u : 0u);
-    if (nfds == 0) {
-        return;
-    }
-    jzx_io_rebuild_pollfds(loop);
-    struct pollfd pollfds[nfds];
-    uint32_t offset = 0;
-    if (use_wakeup) {
-        pollfds[0].fd = loop->wakeup_read_fd;
-        pollfds[0].events = POLLIN;
-        pollfds[0].revents = 0;
-        offset = 1;
-    }
-    for (uint32_t i = 0; i < loop->io_count; ++i) {
-        pollfds[offset + i] = loop->io_pollfds[i];
-        pollfds[offset + i].revents = 0;
-    }
-    int wait_ms = (int)timeout_ms;
-    int rv = poll(pollfds, nfds, wait_ms);
-    if (rv <= 0) {
-        return;
-    }
-    if (use_wakeup && pollfds[0].revents) {
-        jzx_wakeup_drain(loop);
-    }
-    for (uint32_t i = 0; i < loop->io_count; ++i) {
-        struct pollfd* pfd = &pollfds[offset + i];
-        if (pfd->revents == 0) {
-            continue;
-        }
-        uint32_t readiness = jzx_io_revents_to_readiness(pfd->revents);
-        if (readiness == 0) {
-            continue;
-        }
-        jzx_io_watch* watch = &loop->io_watchers[i];
-        jzx_io_event* ev = (jzx_io_event*)jzx_alloc(&loop->allocator, sizeof(jzx_io_event));
-        if (!ev) {
-            continue;
-        }
-        ev->fd = watch->fd;
-        ev->readiness = readiness;
-        jzx_err err =
-            jzx_send_internal(loop, watch->owner, ev, sizeof(jzx_io_event), JZX_TAG_SYS_IO, 0);
-        if (err != JZX_OK) {
-            jzx_free(&loop->allocator, ev);
-        }
-    }
+    return 1;
 }
 
 // -----------------------------------------------------------------------------
@@ -1153,7 +1002,8 @@ jzx_loop* jzx_loop_create(const jzx_config* cfg) {
     memset(loop, 0, sizeof(*loop));
     loop->cfg = local;
     loop->allocator = local.allocator;
-    if (jzx_wakeup_init(loop) != JZX_OK) {
+    loop->xev = jzx_xev_create();
+    if (!loop->xev) {
         jzx_loop_destroy(loop);
         return NULL;
     }
@@ -1189,8 +1039,11 @@ void jzx_loop_destroy(jzx_loop* loop) {
     }
     jzx_timer_system_shutdown(loop);
     jzx_async_queue_destroy(loop);
+    if (loop->xev) {
+        jzx_xev_destroy(loop->xev);
+        loop->xev = NULL;
+    }
     jzx_io_deinit(loop);
-    jzx_wakeup_deinit(loop);
     for (uint32_t i = 0; i < loop->actors.capacity; ++i) {
         jzx_actor* actor = loop->actors.slots ? loop->actors.slots[i] : NULL;
         if (actor) {
@@ -1215,7 +1068,7 @@ int jzx_loop_run(jzx_loop* loop) {
     int rc = JZX_OK;
     while (!loop->stop_requested) {
         jzx_async_drain(loop);
-        jzx_io_poll(loop, 0);
+        jzx_xev_run(loop->xev, 0);
         uint32_t actors_processed = 0;
         while (actors_processed < loop->cfg.max_actors_per_tick) {
             jzx_actor* actor = jzx_run_queue_pop(&loop->run_queue);
@@ -1262,7 +1115,7 @@ int jzx_loop_run(jzx_loop* loop) {
                 !jzx_timer_has_pending(loop) && loop->io_count == 0) {
                 break;
             }
-            jzx_io_poll(loop, loop->cfg.io_poll_timeout_ms);
+            jzx_xev_run(loop->xev, 1);
         }
     }
     loop->running = 0;
@@ -1525,7 +1378,7 @@ jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer) {
 }
 
 jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t interest) {
-    if (!loop || fd < 0 || interest == 0) {
+    if (!loop || !loop->xev || fd < 0 || interest == 0) {
         return JZX_ERR_INVALID_ARG;
     }
     if (!jzx_actor_table_lookup(&loop->actors, owner)) {
@@ -1533,9 +1386,12 @@ jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t intere
     }
     jzx_io_watch* existing = jzx_io_find(loop, fd, NULL);
     if (existing) {
+        jzx_err err = jzx_xev_watch_fd(loop->xev, loop, fd, interest);
+        if (err != JZX_OK) {
+            return err;
+        }
         existing->owner = owner;
         existing->interest = interest;
-        loop->io_dirty = 1;
         return JZX_OK;
     }
     if (loop->io_count == loop->io_capacity) {
@@ -1544,19 +1400,20 @@ jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t intere
             return err;
         }
     }
-    loop->io_watchers[loop->io_count] = (jzx_io_watch){
+    uint32_t idx = loop->io_count;
+    loop->io_watchers[idx] = (jzx_io_watch){
         .fd = fd,
         .owner = owner,
         .interest = interest,
         .active = 1,
     };
-    loop->io_pollfds[loop->io_count] = (struct pollfd){
-        .fd = fd,
-        .events = jzx_io_interest_to_poll(interest),
-        .revents = 0,
-    };
-    loop->io_count++;
-    loop->io_dirty = 1;
+    loop->io_count = idx + 1;
+    jzx_err err = jzx_xev_watch_fd(loop->xev, loop, fd, interest);
+    if (err != JZX_OK) {
+        loop->io_count = idx;
+        memset(&loop->io_watchers[idx], 0, sizeof(loop->io_watchers[idx]));
+        return err;
+    }
     return JZX_OK;
 }
 

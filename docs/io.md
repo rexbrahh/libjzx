@@ -1,6 +1,6 @@
 # I/O readiness
 
-libjzx includes a small fd readiness facility built into the loop.
+libjzx includes a small fd readiness facility built into the loop, backed by libxev.
 
 Register an fd with `jzx_watch_fd()`, and readiness events are delivered to the owning actor as messages tagged `JZX_TAG_SYS_IO`.
 
@@ -53,5 +53,4 @@ The runtime does not call `close(fd)` for you; fd ownership remains with user co
 I/O readiness is delivered as normal messages, so it is subject to the same scheduler bounds:
 
 - `max_msgs_per_actor` limits how many I/O events (and other messages) a single actor can process per visit.
-- `max_actors_per_tick` limits how many actors are serviced between I/O polls.
-
+- `max_actors_per_tick` limits how many actors are serviced between libxev ticks.

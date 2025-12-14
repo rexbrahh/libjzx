@@ -7,10 +7,19 @@
 #include <stddef.h>
 #include <stdint.h>
 
-struct pollfd;
 typedef struct jzx_async_msg jzx_async_msg;
 typedef struct jzx_timer_entry jzx_timer_entry;
 typedef struct jzx_io_watch jzx_io_watch;
+typedef struct jzx_xev jzx_xev;
+
+jzx_xev* jzx_xev_create(void);
+void jzx_xev_destroy(jzx_xev* state);
+void jzx_xev_wakeup(jzx_xev* state);
+void jzx_xev_run(jzx_xev* state, int mode);
+jzx_err jzx_xev_watch_fd(jzx_xev* state, jzx_loop* loop, int fd, uint32_t interest);
+void jzx_xev_unwatch_fd(jzx_xev* state, int fd);
+
+uint8_t jzx_io_xev_notify(jzx_loop* loop, int fd, uint32_t readiness);
 
 typedef struct {
     jzx_message* buffer;
@@ -70,8 +79,7 @@ struct jzx_loop {
     void* observer_ctx;
     jzx_actor_table actors;
     jzx_run_queue run_queue;
-    int wakeup_read_fd;
-    int wakeup_write_fd;
+    jzx_xev* xev;
     pthread_mutex_t async_mutex;
     uint8_t async_mutex_initialized;
     jzx_async_msg* async_head;
@@ -87,9 +95,6 @@ struct jzx_loop {
     jzx_io_watch* io_watchers;
     uint32_t io_capacity;
     uint32_t io_count;
-    struct pollfd* io_pollfds;
-    uint8_t io_dirty;
-    struct xev_loop* xev;
     int running;
     int stop_requested;
 };

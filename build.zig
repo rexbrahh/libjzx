@@ -4,13 +4,15 @@ fn makeRuntimeModule(
     b: *std.Build,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
+    xev_module: *std.Build.Module,
 ) *std.Build.Module {
     const module = b.createModule(.{
-        .root_source_file = null,
+        .root_source_file = b.path("src/jzx_xev.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = true,
     });
+    module.addImport("xev", xev_module);
     module.addIncludePath(b.path("include"));
     module.addCSourceFile(.{ .file = b.path("src/jzx_runtime.c") });
     module.linkSystemLibrary("pthread", .{});
@@ -21,7 +23,10 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const static_module = makeRuntimeModule(b, target, optimize);
+    const libxev = b.dependency("libxev", .{ .target = target, .optimize = optimize });
+    const xev_module = libxev.module("xev");
+
+    const static_module = makeRuntimeModule(b, target, optimize, xev_module);
     const static_lib = b.addLibrary(.{
         .name = "jzx",
         .root_module = static_module,
@@ -29,7 +34,7 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(static_lib);
 
-    const shared_module = makeRuntimeModule(b, target, optimize);
+    const shared_module = makeRuntimeModule(b, target, optimize, xev_module);
     const shared_lib = b.addLibrary(.{
         .name = "jzx",
         .root_module = shared_module,
@@ -94,6 +99,19 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(zig_sup);
     example_step.dependOn(&zig_sup.step);
 
+    const echo_module = b.createModule(.{
+        .root_source_file = b.path("examples/zig/echo_server.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "jzx", .module = jzx_module }},
+    });
+    const zig_echo = b.addExecutable(.{
+        .name = "zig-echo-server",
+        .root_module = echo_module,
+    });
+    b.installArtifact(zig_echo);
+    example_step.dependOn(&zig_echo.step);
+
     const stress_module = b.createModule(.{
         .root_source_file = b.path("tools/stress.zig"),
         .target = target,
@@ -112,8 +130,10 @@ pub fn build(b: *std.Build) void {
     stress_step.dependOn(&run_stress.step);
 
     const fmt = b.addFmt(.{ .paths = &.{
+        "src/jzx_xev.zig",
         "zig/jzx/lib.zig",
         "zig/tests/basic.zig",
+        "examples/zig/echo_server.zig",
         "examples/zig/ping.zig",
         "examples/zig/supervisor.zig",
         "tools/stress.zig",
