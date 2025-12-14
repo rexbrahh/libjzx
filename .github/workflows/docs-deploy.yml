@@ -35,6 +35,18 @@ jobs:
         working-directory: docs
         run: npm ci
 
+      - name: Check deep-dive sources
+        working-directory: docs
+        run: npm run check:deep-dive
+
+      - name: Check deep-dive coverage
+        working-directory: docs
+        run: npm run check:coverage:deep-dive
+
+      - name: Typecheck
+        working-directory: docs
+        run: npm run typecheck
+
       - name: Build
         working-directory: docs
         run: npm run build

@@ -58,8 +58,9 @@ What each piece is doing:
 
 ### Config + loop creation
 
-<!-- snippet: examples/c/loop.c#between=jzx_config cfg;|jzx_spawn_opts opts -->
-```c title="Initialize config and create a loop" showLineNumbers=12
+<!-- snippet: examples/c/loop.c#between=int main(void)|jzx_spawn_opts opts -->
+```c title="Initialize config and create a loop" showLineNumbers=11
+int main(void) {
     jzx_config cfg;
     jzx_config_init(&cfg);
     jzx_loop* loop = jzx_loop_create(&cfg);
@@ -99,7 +100,7 @@ What each field means:
 
 ### Spawn, send, run, destroy
 
-<!-- snippet: examples/c/loop.c#between=jzx_actor_id actor_id|return 0; -->
+<!-- snippet: examples/c/loop.c#L27-L38 -->
 ```c title="Create actor, send one message, run" showLineNumbers=27
     jzx_actor_id actor_id = 0;
     if (jzx_spawn(loop, &opts, &actor_id) != JZX_OK) {
@@ -111,6 +112,8 @@ What each field means:
     jzx_send(loop, actor_id, NULL, 0, 0);
     jzx_loop_run(loop);
     jzx_loop_destroy(loop);
+    return 0;
+}
 ```
 
 The flow:

@@ -65,7 +65,7 @@ Key ideas:
 
 `.paths` tells Zig which repo paths are considered part of the package.
 
-<!-- snippet: build.zig.zon#L12-L24 -->
+<!-- snippet: build.zig.zon#L12-L25 -->
 ```zig title="Package paths" showLineNumbers=12
     .paths = .{
         "build.zig",
@@ -80,6 +80,7 @@ Key ideas:
         "dev_logs",
         "docs",
     },
+}
 ```
 
 Why this matters:

@@ -307,7 +307,7 @@ The important UX detail is `addArgs(&.{"--smoke"})`:
 
 The `fmt` step is a curated list of Zig source files to run `zig fmt` on.
 
-<!-- snippet: build.zig#L145-L157 -->
+<!-- snippet: build.zig#L145-L158 -->
 ```zig title="zig fmt step" showLineNumbers=145
     const fmt = b.addFmt(.{ .paths = &.{
         "build.zig",
@@ -322,6 +322,7 @@ The `fmt` step is a curated list of Zig source files to run `zig fmt` on.
     } });
     const fmt_step = b.step("fmt", "Run zig fmt on Zig sources");
     fmt_step.dependOn(&fmt.step);
+}
 ```
 
 Why the list is explicit (instead of formatting “everything”):

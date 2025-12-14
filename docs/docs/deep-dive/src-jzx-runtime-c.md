@@ -11,13 +11,17 @@ Unlike a reference dump, this page is written in a “textbook” style: small s
 
 ## Includes and file-level structure
 
-<!-- snippet: src/jzx_runtime.c#L1-L6 -->
-```c title="Includes" showLineNumbers=1
+<!-- snippet: src/jzx_runtime.c#L1-L9 -->
+```c title="Includes + file-level section markers" showLineNumbers=1
 #include "jzx_internal.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+// -----------------------------------------------------------------------------
+// Utility helpers
+// -----------------------------------------------------------------------------
 ```
 
 - `jzx_internal.h` provides the concrete `struct jzx_loop` and internal helper types.
@@ -233,6 +237,31 @@ static uint32_t jzx_sat_mul32(uint32_t a, uint32_t b) {
 
 Saturating multiply is used for exponential backoff computations without wrapping.
 
+### Forward declarations (internal cross-links)
+
+This file is written top-to-bottom, but a few subsystems need to reference helpers that are defined later.
+Instead of reordering everything, `jzx_runtime.c` uses file-local forward declarations.
+
+<!-- snippet: src/jzx_runtime.c#L115-L122 -->
+```c title="Forward declarations + section boundary" showLineNumbers=115
+static jzx_err jzx_send_internal(jzx_loop* loop, jzx_actor_id target, void* data, size_t len,
+                                 uint32_t tag, jzx_actor_id sender);
+
+static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor);
+
+// -----------------------------------------------------------------------------
+// Wakeup helpers
+// -----------------------------------------------------------------------------
+```
+
+Why these exist:
+
+- `jzx_send_internal(...)`: the “real send” primitive that all message paths funnel through.
+  - It’s referenced by multiple subsystems (async send, timers, supervision system messages).
+- `jzx_io_remove_actor(...)`: used during teardown to ensure watchers don’t keep stale `(fd → actor)` references.
+- The dashed section headers are purely for human readers, but they’re valuable in a file this large:
+  - each header marks a coherent subsystem with its own invariants.
+
 ## Wakeup helpers (event loop notification)
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_wakeup_signal -->
@@ -248,6 +277,13 @@ static void jzx_wakeup_signal(jzx_loop* loop) {
 This is how the runtime wakes the backend event loop when something arrives from another thread (async send queue or timer wake).
 
 ## Observer helpers (instrumentation)
+
+<!-- snippet: src/jzx_runtime.c#L131-L133 -->
+```c title="Section: observer helpers" showLineNumbers=131
+// -----------------------------------------------------------------------------
+// Observer helpers
+// -----------------------------------------------------------------------------
+```
 
 These helpers are “safe callouts”: they check for null hooks and then forward the event.
 
@@ -300,6 +336,13 @@ static void jzx_obs_mailbox_full(jzx_loop* loop, jzx_actor_id target) {
 Why these exist: to keep observer checks consistent and to keep the core logic readable.
 
 ## Mailbox implementation (bounded per-actor queue)
+
+<!-- snippet: src/jzx_runtime.c#L166-L168 -->
+```c title="Section: mailbox implementation" showLineNumbers=166
+// -----------------------------------------------------------------------------
+// Mailbox implementation
+// -----------------------------------------------------------------------------
+```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_mailbox_init -->
 ```c title="jzx_mailbox_init()" showLineNumbers=170
@@ -377,6 +420,13 @@ static int jzx_mailbox_has_items(const jzx_mailbox_impl* box) {
 ```
 
 ## Actor table (id → actor pointer with generations)
+
+<!-- snippet: src/jzx_runtime.c#L220-L222 -->
+```c title="Section: actor table implementation" showLineNumbers=220
+// -----------------------------------------------------------------------------
+// Actor table implementation
+// -----------------------------------------------------------------------------
+```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_table_init -->
 ```c title="jzx_actor_table_init()" showLineNumbers=224
@@ -487,6 +537,13 @@ static void jzx_actor_table_remove(jzx_actor_table* table, jzx_actor* actor) {
 
 ## Run queue (who runs next)
 
+<!-- snippet: src/jzx_runtime.c#L312-L314 -->
+```c title="Section: run queue implementation" showLineNumbers=312
+// -----------------------------------------------------------------------------
+// Run queue implementation
+// -----------------------------------------------------------------------------
+```
+
 <!-- snippet: src/jzx_runtime.c#func=jzx_run_queue_init -->
 ```c title="jzx_run_queue_init()" showLineNumbers=316
 static jzx_err jzx_run_queue_init(jzx_run_queue* rq, uint32_t capacity, jzx_allocator* allocator) {
@@ -595,6 +652,13 @@ This function owns the “stop means free” contract:
 - Removes the actor from the actor table and frees its allocation.
 
 ## Supervision logic (restart strategies)
+
+<!-- snippet: src/jzx_runtime.c#L394-L396 -->
+```c title="Section: supervisor helpers" showLineNumbers=394
+// -----------------------------------------------------------------------------
+// Supervisor helpers
+// -----------------------------------------------------------------------------
+```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_find_child -->
 ```c title="jzx_supervisor_find_child()" showLineNumbers=398
@@ -841,6 +905,13 @@ Supervisor actors are just actors with a special behavior: they react to system 
 
 ## Async queue (`jzx_send_async`)
 
+<!-- snippet: src/jzx_runtime.c#L608-L610 -->
+```c title="Section: async queue" showLineNumbers=608
+// -----------------------------------------------------------------------------
+// Async queue
+// -----------------------------------------------------------------------------
+```
+
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_queue_init -->
 ```c title="jzx_async_queue_init()" showLineNumbers=612
 static jzx_err jzx_async_queue_init(jzx_loop* loop) {
@@ -967,6 +1038,13 @@ static int jzx_async_has_pending(jzx_loop* loop) {
 ```
 
 ## Timer system (timer thread + due list)
+
+<!-- snippet: src/jzx_runtime.c#L708-L710 -->
+```c title="Section: timer system" showLineNumbers=708
+// -----------------------------------------------------------------------------
+// Timer system
+// -----------------------------------------------------------------------------
+```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_timer_insert_locked -->
 ```c title="jzx_timer_insert_locked()" showLineNumbers=712
@@ -1129,6 +1207,13 @@ static int jzx_timer_has_pending(jzx_loop* loop) {
 
 ## I/O watchers (fd table + backend registration)
 
+<!-- snippet: src/jzx_runtime.c#L854-L856 -->
+```c title="Section: I/O watchers" showLineNumbers=854
+// -----------------------------------------------------------------------------
+// I O watchers
+// -----------------------------------------------------------------------------
+```
+
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_init -->
 ```c title="jzx_io_init()" showLineNumbers=858
 static jzx_err jzx_io_init(jzx_loop* loop, uint32_t capacity) {
@@ -1220,7 +1305,83 @@ static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor) {
 }
 ```
 
+### libxev → runtime bridge (`jzx_io_xev_notify`)
+
+The `src/jzx_xev.zig` layer needs a single, C-callable “upcall” into the runtime when an fd becomes ready.
+That is what `jzx_io_xev_notify` is for.
+
+<!-- snippet: src/jzx_runtime.c#func=jzx_io_xev_notify -->
+```c title="jzx_io_xev_notify(): deliver readiness as a system message" showLineNumbers=931
+uint8_t jzx_io_xev_notify(jzx_loop* loop, int fd, uint32_t readiness) {
+    if (!loop || !loop->running || fd < 0 || readiness == 0) {
+        return 0;
+    }
+
+    uint32_t idx = 0;
+    jzx_io_watch* watch = jzx_io_find(loop, fd, &idx);
+    if (!watch) {
+        return 0;
+    }
+    if (!jzx_actor_table_lookup(&loop->actors, watch->owner)) {
+        jzx_io_remove_index(loop, idx);
+        return 0;
+    }
+
+    jzx_io_event* ev = (jzx_io_event*)jzx_alloc(&loop->allocator, sizeof(jzx_io_event));
+    if (!ev) {
+        return 1;
+    }
+    ev->fd = fd;
+    ev->readiness = readiness;
+    jzx_err err =
+        jzx_send_internal(loop, watch->owner, ev, sizeof(jzx_io_event), JZX_TAG_SYS_IO, 0);
+    if (err != JZX_OK) {
+        jzx_free(&loop->allocator, ev);
+    }
+    return 1;
+}
+```
+
+Read it as a three-stage pipeline:
+
+1. **Validate**: if the loop isn’t running yet, or the event is invalid, return `0` (not delivered).
+2. **Resolve**: map `fd → watch → owner actor`.
+   - If the owner no longer exists, the watch is removed (self-healing).
+3. **Deliver**: allocate a `jzx_io_event`, enqueue it as a system message (`JZX_TAG_SYS_IO`).
+
+The return value is intentionally small and lossy:
+
+- `0`: nothing was delivered (no watch, invalid state, stale owner).
+- `1`: the event was “handled” from the backend’s perspective.
+  - Even if the message could not be enqueued, the backend shouldn’t spin endlessly on the same readiness.
+
 ## Config helpers and loop lifecycle (public ABI entry points)
+
+### Default allocator hooks
+
+If the caller doesn’t provide a custom allocator, libjzx uses `malloc`/`free`.
+
+<!-- snippet: src/jzx_runtime.c#L960-L972 -->
+```c title="Config helpers: default allocator" showLineNumbers=960
+// -----------------------------------------------------------------------------
+// Config helpers
+// -----------------------------------------------------------------------------
+
+static void* default_alloc(void* ctx, size_t size) {
+    (void)ctx;
+    return malloc(size);
+}
+
+static void default_free(void* ctx, void* ptr) {
+    (void)ctx;
+    free(ptr);
+}
+```
+
+Why this is written this way:
+
+- The allocator signature includes a `ctx` pointer so applications can route allocations to arenas/pools.
+- The default implementation ignores `ctx` and forwards to the platform heap.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_config_init -->
 ```c title="jzx_config_init()" showLineNumbers=974
@@ -1239,6 +1400,55 @@ void jzx_config_init(jzx_config* cfg) {
     cfg->max_io_watchers = 1024;
     cfg->io_poll_timeout_ms = 10;
 }
+```
+
+### “Apply defaults” for partially-initialized configs
+
+`jzx_config_init` gives you a fully populated config, but callers can also pass a partially-filled struct
+(for example, override `io_poll_timeout_ms` while leaving everything else “default”).
+
+`apply_defaults` is the guardrail that turns “some fields set to 0” into “reasonable default values”.
+
+<!-- snippet: src/jzx_runtime.c#func=apply_defaults -->
+```c title="apply_defaults(): fill in missing config values" showLineNumbers=990
+static void apply_defaults(jzx_config* cfg) {
+    if (!cfg->allocator.alloc) {
+        cfg->allocator.alloc = default_alloc;
+    }
+    if (!cfg->allocator.free) {
+        cfg->allocator.free = default_free;
+    }
+    if (cfg->max_actors == 0) {
+        cfg->max_actors = 1024;
+    }
+    if (cfg->default_mailbox_cap == 0) {
+        cfg->default_mailbox_cap = 1024;
+    }
+    if (cfg->max_msgs_per_actor == 0) {
+        cfg->max_msgs_per_actor = 64;
+    }
+    if (cfg->max_actors_per_tick == 0) {
+        cfg->max_actors_per_tick = 1024;
+    }
+    if (cfg->max_io_watchers == 0) {
+        cfg->max_io_watchers = 1024;
+    }
+    if (cfg->io_poll_timeout_ms == 0) {
+        cfg->io_poll_timeout_ms = 10;
+    }
+}
+```
+
+Why this exists:
+
+- It lets you do “override one knob” without having to update this file every time new knobs are added.
+- It makes `0` mean “use default” for most numeric config fields, which keeps the API ergonomic.
+
+<!-- snippet: src/jzx_runtime.c#L1017-L1019 -->
+```c title="Section: loop lifecycle" showLineNumbers=1017
+// -----------------------------------------------------------------------------
+// Loop lifecycle
+// -----------------------------------------------------------------------------
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_loop_create -->
@@ -1439,6 +1649,13 @@ void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx) {
 
 ## Actor APIs (spawn/send/stop/fail)
 
+<!-- snippet: src/jzx_runtime.c#L1197-L1199 -->
+```c title="Section: actor APIs" showLineNumbers=1197
+// -----------------------------------------------------------------------------
+// Actor APIs
+// -----------------------------------------------------------------------------
+```
+
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_create -->
 ```c title="jzx_actor_create() (internal helper)" showLineNumbers=1201
 static jzx_actor* jzx_actor_create(jzx_loop* loop, const jzx_spawn_opts* opts) {
@@ -1556,6 +1773,13 @@ jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
 
 ## Supervisor APIs (public ABI entry points)
 
+<!-- snippet: src/jzx_runtime.c#L1295-L1297 -->
+```c title="Section: supervisor spawn" showLineNumbers=1295
+// -----------------------------------------------------------------------------
+// Supervisor spawn
+// -----------------------------------------------------------------------------
+```
+
 <!-- snippet: src/jzx_runtime.c#func=jzx_spawn_supervisor -->
 ```c title="jzx_spawn_supervisor()" showLineNumbers=1299
 jzx_err jzx_spawn_supervisor(jzx_loop* loop, const jzx_supervisor_init* init, jzx_actor_id parent,
@@ -1622,6 +1846,13 @@ jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t 
 ```
 
 ## Timers and I/O APIs (public ABI entry points)
+
+<!-- snippet: src/jzx_runtime.c#L1358-L1360 -->
+```c title="Section: timers & IO" showLineNumbers=1358
+// -----------------------------------------------------------------------------
+// Timers & IO
+// -----------------------------------------------------------------------------
+```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_send_after -->
 ```c title="jzx_send_after()" showLineNumbers=1362

@@ -257,10 +257,12 @@ Ownership note:
 
 ## Running the loop
 
-<!-- snippet: examples/c/supervisor.c#between=int rc = jzx_loop_run|return rc; -->
+<!-- snippet: examples/c/supervisor.c#L98-L101 -->
 ```c title="Run the loop (event-loop style)" showLineNumbers=98
     int rc = jzx_loop_run(loop);
     jzx_loop_destroy(loop);
+    return rc;
+}
 ```
 
 Important behavior:

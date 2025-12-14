@@ -45,6 +45,25 @@ cd docs
 npm run check:deep-dive
 ```
 
+## Deep-dive coverage check
+
+Deep-dive pages are intended to cover all **non-empty** lines of the core runtime/build/tooling/example sources
+(excluding `#all` appendices).
+
+Generate a coverage report:
+
+```sh
+cd docs
+npm run coverage:deep-dive
+```
+
+CI enforces the coverage target:
+
+```sh
+cd docs
+npm run check:coverage:deep-dive
+```
+
 ## Production build
 
 ```sh

@@ -318,7 +318,7 @@ If those assumptions are violated, the wrapper panics, because continuing would 
 
 ### Mapping result enums back to C
 
-<!-- snippet: zig/jzx/lib.zig#L158-L165 -->
+<!-- snippet: zig/jzx/lib.zig#L158-L166 -->
 ```zig title="mapBehaviorResult()" showLineNumbers=158
         fn mapBehaviorResult(result: BehaviorResult) c.jzx_behavior_result {
             return switch (result) {
@@ -328,6 +328,7 @@ If those assumptions are violated, the wrapper panics, because continuing would 
             };
         }
     };
+}
 ```
 
 This is a pure mapping layer: Zig enum → C enum.

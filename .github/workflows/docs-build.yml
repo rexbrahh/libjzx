@@ -27,6 +27,10 @@ jobs:
         working-directory: docs
         run: npm run check:deep-dive
 
+      - name: Check deep-dive coverage
+        working-directory: docs
+        run: npm run check:coverage:deep-dive
+
       - name: Typecheck
         working-directory: docs
         run: npm run typecheck

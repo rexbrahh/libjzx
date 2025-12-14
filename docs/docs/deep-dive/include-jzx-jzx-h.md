@@ -427,8 +427,10 @@ Callback threading and reentrancy (practical guidance):
 
 ## Messaging API (enqueue work for actors)
 
-<!-- snippet: include/jzx/jzx.h#L175-L182 -->
-```c title="Send and lifecycle control" showLineNumbers=175
+<!-- snippet: include/jzx/jzx.h#L173-L182 -->
+```c title="Send and lifecycle control" showLineNumbers=173
+// --- Messaging API ---------------------------------------------------------
+
 jzx_err jzx_send(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag);
 
 // Thread-safe enqueue for cross-thread sends. Payload is not copied.
@@ -451,8 +453,10 @@ The actor control functions exist to request termination externally:
 
 ## Timers and I/O (time- and fd-triggered messages)
 
-<!-- snippet: include/jzx/jzx.h#L186-L212 -->
-```c title="Timers, fd watches, and system payloads" showLineNumbers=186
+<!-- snippet: include/jzx/jzx.h#L184-L212 -->
+```c title="Timers, fd watches, and system payloads" showLineNumbers=184
+// --- Timers & IO -----------------------------------------------------------
+
 jzx_err jzx_send_after(jzx_loop* loop, jzx_actor_id target, uint32_t ms, void* data, size_t len,
                        uint32_t tag, jzx_timer_id* out_timer);
 

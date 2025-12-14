@@ -241,7 +241,7 @@ Important details:
 
 ### Final cleanup invariants
 
-<!-- snippet: examples/zig/echo_server.zig#L95-L100 -->
+<!-- snippet: examples/zig/echo_server.zig#L95-L101 -->
 ```zig title="Normalize pending counters" showLineNumbers=95
     if (state.pending_off >= state.pending_len) {
         state.pending_len = 0;
@@ -249,6 +249,7 @@ Important details:
     }
 
     return c.JZX_BEHAVIOR_OK;
+}
 ```
 
 This ensures:
@@ -347,6 +348,19 @@ Key details:
   - Unlike `jzx_io_event`, this is user-owned memory; the connection actor frees it on stop.
 - After spawning the connection actor, the listener registers the client fd with the runtime:
   - `owner = actor_id` → I/O events for that fd are delivered to the connection actor.
+
+### Keep the listener alive
+
+<!-- snippet: examples/zig/echo_server.zig#L163-L164 -->
+```zig title="listenerBehavior(): keep running" showLineNumbers=163
+    return c.JZX_BEHAVIOR_OK;
+}
+```
+
+Why this matters:
+
+- The listener should keep accepting new connections until the process exits or the loop is stopped.
+- `JZX_BEHAVIOR_OK` is the “stay alive” result; it tells the runtime to keep the actor runnable for future messages.
 
 ## main(): bind, listen, spawn listener, watch fd
 
