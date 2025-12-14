@@ -12,7 +12,7 @@ type FeatureItem = {
 const FeatureList: FeatureItem[] = [
   {
     title: 'Actor runtime core',
-    Svg: require('@site/static/img/undraw_docusaurus_mountain.svg').default,
+    Svg: require('@site/static/img/icon-runtime.svg').default,
     description: (
       <>
         Single-process scheduler, mailboxes, timers, and I/O watchers built atop{' '}
@@ -22,7 +22,7 @@ const FeatureList: FeatureItem[] = [
   },
   {
     title: 'Supervision + observability',
-    Svg: require('@site/static/img/undraw_docusaurus_tree.svg').default,
+    Svg: require('@site/static/img/icon-supervision.svg').default,
     description: (
       <>
         Supervisor trees and lightweight observer hooks for lifecycle, mailbox pressure, and
@@ -31,12 +31,12 @@ const FeatureList: FeatureItem[] = [
     ),
   },
   {
-    title: 'Zig-orchestrated build',
-    Svg: require('@site/static/img/undraw_docusaurus_react.svg').default,
+    title: 'Reproducible build + tests',
+    Svg: require('@site/static/img/icon-build.svg').default,
     description: (
       <>
-        Zig builds and tests the C runtime and Zig bindings together, keeping integration tight
-        and reproducible.
+        Zig builds and tests the C runtime and Zig bindings together, keeping integration tight and
+        reviewable.
       </>
     ),
   },

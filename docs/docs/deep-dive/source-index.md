@@ -5,7 +5,7 @@ sidebar_position: 1
 
 # Source index
 
-This section is for **extremely detailed, code-first documentation**: what each file does, how the pieces fit, and (where useful) line-by-line commentary.
+This section is for **extremely detailed, code-first documentation**: what each file does, how the pieces fit, and (where useful) line-scoped explanations with small, reviewable snippets.
 
 ## Reading order
 
@@ -38,7 +38,7 @@ If you want to keep the docs extremely detailed *and* maintainable as code evolv
 
 - **C ABI reference**: Doxygen comments in `include/jzx/jzx.h` + generated HTML.
 - **Zig API reference**: Zig doc comments (`///`) + `zig doc` output.
-- **Docusaurus deep-dive**: curated narrative explanations (this section), plus selectively embedded code with `showLineNumbers` for review-friendly reading.
+- **Deep-dive docs**: curated narrative explanations (this section), plus selectively embedded code with `showLineNumbers` for review-friendly reading.
 
 ## Quick links
 

@@ -28,11 +28,10 @@ const siteBaseUrl = normalizeBaseUrl(
 const config: Config = {
   title: 'libjzx',
   tagline: 'libxev-backed actor runtime',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/favicon.svg',
 
-  // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
-    v4: true, // Improve compatibility with the upcoming Docusaurus v4
+    v4: true,
   },
 
   // Set the production url of your site here
@@ -75,17 +74,11 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
-    image: 'img/docusaurus-social-card.jpg',
     colorMode: {
       respectPrefersColorScheme: true,
     },
     navbar: {
       title: 'libjzx',
-      logo: {
-        alt: 'libjzx logo',
-        src: 'img/logo.svg',
-      },
       items: [
         {
           type: 'docSidebar',
@@ -101,7 +94,7 @@ const config: Config = {
       ],
     },
     footer: {
-      style: 'dark',
+      style: 'light',
       links: [
         {
           title: 'Documentation',
@@ -131,11 +124,11 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} libjzx contributors. Built with Docusaurus.`,
+      copyright: `Copyright © ${new Date().getFullYear()} libjzx contributors.`,
     },
     prism: {
       theme: prismThemes.github,
-      darkTheme: prismThemes.dracula,
+      darkTheme: prismThemes.vsDark,
     },
   } satisfies Preset.ThemeConfig,
 };

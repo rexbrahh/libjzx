@@ -4,10 +4,24 @@
  */
 
 .heroBanner {
-  padding: 4rem 0;
+  padding: 3.5rem 0;
   text-align: center;
   position: relative;
   overflow: hidden;
+  background: var(--jzx-surface-1);
+  border-bottom: 1px solid var(--jzx-border);
+}
+
+.heroTitle {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.heroSubtitle {
+  color: var(--jzx-muted);
+  font-size: 1.15rem;
+  margin-top: 0.75rem;
 }
 
 @media screen and (max-width: 996px) {

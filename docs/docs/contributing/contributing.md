@@ -35,6 +35,6 @@ TODO: Add pointers to the most important tests/stress harnesses as they land.
 
 ## Documentation site
 
-The docs website lives under `docs/` and is built with Docusaurus.
+The docs website lives under `docs/` (Node.js 20+).
 
 See `docs/README.md` for local commands.
