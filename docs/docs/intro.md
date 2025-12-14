@@ -24,3 +24,4 @@ This project is under active development. APIs and on-disk layouts may change.
 - [Installation](getting-started/installation)
 - [Quickstart](getting-started/quickstart)
 - [Architecture](concepts/architecture)
+- [Deep dive: source index](deep-dive/source-index)

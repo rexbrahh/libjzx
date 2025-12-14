@@ -6,6 +6,8 @@
     "docusaurus": "docusaurus",
     "start": "docusaurus start",
     "build": "docusaurus build",
+    "sync:deep-dive": "node scripts/sync-deep-dive.mjs",
+    "check:deep-dive": "node scripts/sync-deep-dive.mjs --check",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",

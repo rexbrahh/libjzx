@@ -29,6 +29,22 @@ cd docs
 npm run start
 ```
 
+## Keeping deep-dive pages in sync with source
+
+Some deep-dive pages embed full source files with line numbers. To keep those code blocks synced:
+
+```sh
+cd docs
+npm run sync:deep-dive
+```
+
+CI runs a sync check:
+
+```sh
+cd docs
+npm run check:deep-dive
+```
+
 ## Production build
 
 ```sh

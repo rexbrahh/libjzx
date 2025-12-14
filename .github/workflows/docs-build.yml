@@ -23,6 +23,10 @@ jobs:
         working-directory: docs
         run: npm ci
 
+      - name: Check deep-dive sources
+        working-directory: docs
+        run: npm run check:deep-dive
+
       - name: Typecheck
         working-directory: docs
         run: npm run typecheck
