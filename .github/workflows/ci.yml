@@ -39,7 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           start=$(date +%s%3N)
-          zig build fmt
+          zig build fmt --seed 0
           end=$(date +%s%3N)
           echo "FMT_MS=$((end - start))" >> "$GITHUB_ENV"
 
@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           start=$(date +%s%3N)
-          zig build test
+          zig build test --seed 0
           end=$(date +%s%3N)
           echo "TEST_MS=$((end - start))" >> "$GITHUB_ENV"
 
@@ -58,7 +58,7 @@ jobs:
           set -euo pipefail
 
           start=$(date +%s%3N)
-          zig build stress | tee stress-smoke.log
+          zig build stress --seed 0 | tee stress-smoke.log
           end=$(date +%s%3N)
           echo "STRESS_SMOKE_MS=$((end - start))" >> "$GITHUB_ENV"
 
@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           start=$(date +%s%3N)
-          zig build examples
+          zig build examples --seed 0
           end=$(date +%s%3N)
           echo "EXAMPLES_MS=$((end - start))" >> "$GITHUB_ENV"
 
