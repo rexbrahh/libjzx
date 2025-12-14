@@ -115,7 +115,7 @@ const config: Config = {
           ],
         },
       ],
-      copyright: `Copyright © ${new Date().getFullYear()} libjzx contributors.`,
+      copyright: `Copyright © ${new Date().getFullYear()} libjzx.`,
     },
     prism: {
       theme: prismThemes.github,
