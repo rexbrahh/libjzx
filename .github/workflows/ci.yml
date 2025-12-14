@@ -4,6 +4,13 @@ on:
   push:
     branches: ["main"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      full_stress:
+        description: "Run full (non-smoke) stress suite"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -17,14 +24,98 @@ jobs:
         with:
           version: 0.15.1
 
-      - name: Format check (zig build fmt)
-        run: zig build fmt
+      - name: Cache Zig build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zig
+            .zig-cache
+          key: zig-${{ runner.os }}-0.15.1-${{ github.sha }}
+          restore-keys: |
+            zig-${{ runner.os }}-0.15.1-
+
+      - name: Format (zig build fmt)
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$(date +%s%3N)
+          zig build fmt
+          end=$(date +%s%3N)
+          echo "FMT_MS=$((end - start))" >> "$GITHUB_ENV"
 
       - name: Run tests
-        run: zig build test
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$(date +%s%3N)
+          zig build test
+          end=$(date +%s%3N)
+          echo "TEST_MS=$((end - start))" >> "$GITHUB_ENV"
 
       - name: Run stress (smoke)
-        run: zig build stress
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          start=$(date +%s%3N)
+          zig build stress | tee stress-smoke.log
+          end=$(date +%s%3N)
+          echo "STRESS_SMOKE_MS=$((end - start))" >> "$GITHUB_ENV"
+
+          pingpong_ms="$(awk -F'elapsed_ms=' '/^stress pingpong:/ {print $2; exit}' stress-smoke.log)"
+          timers_ms="$(awk -F'elapsed_ms=' '/^stress timers:/ {print $2; exit}' stress-smoke.log)"
+          restarts_runs="$(awk -F'runs=' '/^stress restarts:/ {print $2; exit}' stress-smoke.log)"
+          mailbox_ok="$(awk '/^stress mailbox:/ {for (i=1;i<=NF;i++) if ($i ~ /^ok=/) {sub(/^ok=/, "", $i); print $i; exit}}' stress-smoke.log)"
+          mailbox_full="$(awk '/^stress mailbox:/ {for (i=1;i<=NF;i++) if ($i ~ /^full=/) {sub(/^full=/, "", $i); print $i; exit}}' stress-smoke.log)"
+
+          : "${pingpong_ms:=-}"
+          : "${timers_ms:=-}"
+          : "${restarts_runs:=-}"
+          : "${mailbox_ok:=-}"
+          : "${mailbox_full:=-}"
+
+          echo "STRESS_PINGPONG_MS=$pingpong_ms" >> "$GITHUB_ENV"
+          echo "STRESS_TIMERS_MS=$timers_ms" >> "$GITHUB_ENV"
+          echo "STRESS_RESTART_RUNS=$restarts_runs" >> "$GITHUB_ENV"
+          echo "STRESS_MAILBOX_OK=$mailbox_ok" >> "$GITHUB_ENV"
+          echo "STRESS_MAILBOX_FULL=$mailbox_full" >> "$GITHUB_ENV"
+
+      - name: Run stress (full)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.full_stress == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          zig-out/bin/jzx-stress --pingpong --timers --restarts --mailbox
 
       - name: Build examples
-        run: zig build examples
+        shell: bash
+        run: |
+          set -euo pipefail
+          start=$(date +%s%3N)
+          zig build examples
+          end=$(date +%s%3N)
+          echo "EXAMPLES_MS=$((end - start))" >> "$GITHUB_ENV"
+
+      - name: Write step summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## CI metrics"
+            echo
+            echo "| step | ms |"
+            echo "| --- | ---: |"
+            echo "| fmt | ${FMT_MS:-} |"
+            echo "| test | ${TEST_MS:-} |"
+            echo "| stress (smoke) | ${STRESS_SMOKE_MS:-} |"
+            echo "| examples | ${EXAMPLES_MS:-} |"
+            echo
+            echo "### Stress smoke"
+            echo
+            echo "| scenario | value |"
+            echo "| --- | --- |"
+            echo "| pingpong | ${STRESS_PINGPONG_MS:-} ms |"
+            echo "| timers | ${STRESS_TIMERS_MS:-} ms |"
+            echo "| restarts | ${STRESS_RESTART_RUNS:-} runs |"
+            echo "| mailbox | ok=${STRESS_MAILBOX_OK:-} full=${STRESS_MAILBOX_FULL:-} |"
+          } >> "$GITHUB_STEP_SUMMARY"
