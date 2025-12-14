@@ -91,3 +91,17 @@ To override locally or in other CI systems, set:
 
 - `DOCS_URL` (example: `https://rexbrahh.github.io`)
 - `DOCS_BASE_URL` (example: `/libjzx/` or `/`)
+
+## Documentation versioning
+
+This site uses Docusaurus docs versioning.
+
+- The currently published/stable docs are **v0.0.1**.
+- The working directory `docs/docs/` is treated as **next** (unreleased) and is available under `/docs/next/` when running locally.
+
+To snapshot the current `docs/docs/` as a new released version:
+
+```sh
+cd docs
+npm run docusaurus -- docs:version 0.0.2
+```

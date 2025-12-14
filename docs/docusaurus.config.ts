@@ -64,6 +64,16 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl: `https://github.com/${organizationName}/${projectName}/edit/${defaultBranch}/docs/`,
+          lastVersion: '0.0.1',
+          versions: {
+            current: {
+              label: 'next',
+              path: 'next',
+            },
+            '0.0.1': {
+              label: 'v0.0.1',
+            },
+          },
         },
         blog: false,
         theme: {
@@ -87,6 +97,11 @@ const config: Config = {
           sidebarId: 'docsSidebar',
           position: 'left',
           label: 'Docs',
+        },
+        {
+          type: 'docsVersionDropdown',
+          position: 'left',
+          dropdownActiveClassDisabled: true,
         },
         {
           href: `https://github.com/${organizationName}/${projectName}`,
