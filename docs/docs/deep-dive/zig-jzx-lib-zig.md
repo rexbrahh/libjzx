@@ -1,24 +1,40 @@
 ---
-title: Zig wrapper — zig/jzx/lib.zig (annotated)
+title: Zig wrapper — zig/jzx/lib.zig
 sidebar_position: 4
 ---
 
 # Zig wrapper — `zig/jzx/lib.zig`
 
-This file exposes a small Zig-friendly surface over the C ABI:
+This file is a small, Zig-friendly layer over the C ABI (`include/jzx/jzx.h`). It does two main things:
 
-- `Loop`: RAII-ish wrapper around `*c.jzx_loop`
-- `Actor(State, MsgPtr)`: a typed actor helper that converts a Zig function into a `jzx_behavior_fn`
+1. Wraps `*c.jzx_loop` in a `Loop` type with `create/deinit/run/...` methods.
+2. Provides a `Actor(State, MsgPtr)` generic that builds a typed actor interface and a C-ABI trampoline.
 
-## Full source (with line numbers)
+This page is intentionally “textbook style”: small snippets, then explanation.
 
-```zig title="zig/jzx/lib.zig" showLineNumbers
+## Importing the standard library and the C ABI
+
+<!-- snippet: zig/jzx/lib.zig#L1-L5 -->
+```zig title="Imports and C ABI import" showLineNumbers=1
 const std = @import("std");
 
 pub const c = @cImport({
     @cInclude("jzx/jzx.h");
 });
+```
 
+- `std`: Zig standard library; used here mostly for `std.mem.Allocator`.
+- `pub const c = @cImport(...)`: generates a namespace (`c`) containing all C ABI symbols:
+  - types like `c.jzx_loop`, `c.jzx_actor_id`
+  - constants like `c.JZX_OK`
+  - functions like `c.jzx_loop_create`, `c.jzx_spawn`
+
+Why it exists: Zig can call C directly, so this wrapper keeps the ABI as the single source of truth.
+
+## Error mapping (`LoopError`)
+
+<!-- snippet: zig/jzx/lib.zig#L7-L15 -->
+```zig title="Zig error set used by the wrapper" showLineNumbers=7
 pub const LoopError = error{
     CreateFailed,
     InvalidArgument,
@@ -28,7 +44,19 @@ pub const LoopError = error{
     NotWatched,
     Unknown,
 };
+```
 
+Zig prefers typed errors rather than magic integers. This error set is the wrapper’s opinionated mapping of `jzx_err` codes.
+
+- `CreateFailed`: `jzx_loop_create` returned null.
+- The other variants are mapped from negative error codes returned by the C runtime.
+
+Important: this mapping is intentionally incomplete; unknown C error codes map to `.Unknown`.
+
+## Small public helper types (behavior and context)
+
+<!-- snippet: zig/jzx/lib.zig#L17-L27 -->
+```zig title="BehaviorResult, ActorContext, SpawnOptions" showLineNumbers=17
 pub const BehaviorResult = enum { ok, stop, fail };
 
 pub const ActorContext = struct {
@@ -40,7 +68,18 @@ pub const SpawnOptions = struct {
     supervisor: c.jzx_actor_id = 0,
     mailbox_cap: u32 = 0,
 };
+```
 
+These mirror key C ABI concepts in a Zig-friendly form:
+
+- `BehaviorResult`: Zig enum that parallels `c.jzx_behavior_result`.
+- `ActorContext`: a minimal context passed to typed actor behaviors.
+- `SpawnOptions`: ergonomic defaults for typed actor spawn (supervisor and mailbox).
+
+## `Loop`: RAII-ish wrapper for `*c.jzx_loop`
+
+<!-- snippet: zig/jzx/lib.zig#L29-L72 -->
+```zig title="Loop wrapper" showLineNumbers=29
 pub const Loop = struct {
     ptr: *c.jzx_loop,
 
@@ -85,14 +124,55 @@ pub const Loop = struct {
         return mapError(rc);
     }
 };
+```
 
+Line-by-line intent:
+
+- `ptr: *c.jzx_loop`: the wrapper’s only field; it holds the C loop pointer.
+- `create(config: ?c.jzx_config) !Loop`:
+  - If `config` is null, it calls `c.jzx_config_init` to fill defaults.
+  - Calls `c.jzx_loop_create(&cfg)` and errors if it returns null.
+- `deinit`: calls `c.jzx_loop_destroy` and then poisons `self` (`self.* = undefined`) to catch use-after-free bugs early.
+- `run`: forwards to `c.jzx_loop_run` and maps a non-OK return code to a Zig error.
+- `requestStop`: forwards to `c.jzx_loop_request_stop`.
+- `watchFd` / `unwatchFd`: forwards to the C I/O watch APIs and maps errors.
+
+Why this exists: it converts “raw pointers + int error codes” into an ergonomic Zig API while still being a thin wrapper.
+
+## Compile-time guard for typed actor payloads
+
+<!-- snippet: zig/jzx/lib.zig#L74-L79 -->
+```zig title="ensurePointerType" showLineNumbers=74
 fn ensurePointerType(comptime T: type) void {
     switch (@typeInfo(T)) {
         .pointer => return,
         else => @compileError("Message pointer type must be a pointer. Use pointers to structs or opaque data."),
     }
 }
+```
 
+The typed actor API requires `MsgPtr` to be a pointer type (e.g., `*MyMessage`).
+
+Why it exists: the runtime passes `void*` payloads; the typed actor wrapper must be able to reinterpret that as a pointer safely. Rejecting non-pointer `MsgPtr` at compile time prevents an entire class of errors.
+
+## `Actor(State, MsgPtr)`: typed actor helper
+
+At a high level, the typed actor helper works like this:
+
+1. Allocate a small heap object (`Shim`) holding:
+   - the user’s Zig behavior function pointer
+   - the user’s state pointer
+2. Spawn an actor via the C ABI, but register `trampoline` as the C behavior function.
+3. When the runtime calls `trampoline`, it:
+   - reinterprets `ctx->state` back to `*Shim`
+   - casts the message payload pointer to `MsgPtr`
+   - calls the user’s typed Zig behavior
+   - maps the typed result back to the C enum
+
+### The `Actor` type factory and the `Shim`
+
+<!-- snippet: zig/jzx/lib.zig#L81-L90 -->
+```zig title="Type factory setup and shim definition" showLineNumbers=81
 pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
     ensurePointerType(MsgPtr);
 
@@ -102,7 +182,18 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
         behavior: BehaviorFn,
         state: *State,
     };
+```
 
+- `Actor(comptime State, comptime MsgPtr) type`: returns a new struct type specialized to your state/message types.
+- `BehaviorFn`: the typed behavior signature: `fn (*State, MsgPtr, ActorContext) BehaviorResult`.
+- `Shim`: runtime-owned (allocated by the wrapper) and passed through C as an opaque `void*`.
+
+Why the shim exists: C behaviors accept `void* state`; the shim is the bridge from that `void*` back into typed Zig values.
+
+### The returned actor wrapper type (fields)
+
+<!-- snippet: zig/jzx/lib.zig#L91-L98 -->
+```zig title="Actor wrapper fields" showLineNumbers=91
     return struct {
         const Self = @This();
 
@@ -110,7 +201,17 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
         allocator: std.mem.Allocator,
         shim: *Shim,
         id: c.jzx_actor_id,
+```
 
+- `loop`: the loop the actor was spawned into (not owned by the actor wrapper).
+- `allocator`: allocator used to allocate/destroy the shim.
+- `shim`: pointer to the shim allocation.
+- `id`: the actor id returned by the runtime.
+
+### Spawning: allocate shim, then call into C
+
+<!-- snippet: zig/jzx/lib.zig#L99-L128 -->
+```zig title="spawn()" showLineNumbers=99
         pub fn spawn(
             loop: *c.jzx_loop,
             allocator: std.mem.Allocator,
@@ -141,7 +242,19 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
                 .id = actor_id,
             };
         }
+```
 
+Key lines and why they exist:
+
+- `allocator.create(Shim)`: allocates the shim object.
+- `spawn_opts.behavior = trampoline`: registers the C-callable entrypoint.
+- `spawn_opts.state = shim`: passes the shim through `void*`.
+- On failure: `allocator.destroy(shim)` ensures no memory leak.
+
+### Destroy: free shim (does not stop the actor)
+
+<!-- snippet: zig/jzx/lib.zig#L130-L137 -->
+```zig title="destroy() and getId()" showLineNumbers=130
         pub fn destroy(self: *Self) void {
             self.allocator.destroy(self.shim);
             self.* = undefined;
@@ -150,7 +263,19 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
         pub fn getId(self: Self) c.jzx_actor_id {
             return self.id;
         }
+```
 
+Important distinction:
+
+- `destroy()` only frees the wrapper-owned shim allocation.
+- It does **not** automatically stop the underlying actor in the runtime.
+
+TODO: Decide whether the wrapper should offer an explicit `stop()` convenience that calls `c.jzx_actor_stop`.
+
+### The C ABI trampoline (typed dispatch)
+
+<!-- snippet: zig/jzx/lib.zig#L139-L148 -->
+```zig title="trampoline()" showLineNumbers=139
         fn trampoline(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
             const ctx_ptr = ctx.*;
             const shim_ptr: *Shim = @ptrCast(@alignCast(ctx_ptr.state.?));
@@ -161,7 +286,20 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
             const typed_msg = decodeMsgPtr(msg.*);
             return mapBehaviorResult(shim_ptr.behavior(shim_ptr.state, typed_msg, context));
         }
+```
 
+This is the most important function in the typed actor system:
+
+- It receives raw C pointers (`[*c]c.jzx_context`, `[*c]const c.jzx_message`).
+- It reinterprets `ctx_ptr.state` as a `*Shim` (the allocation created in `spawn()`).
+- It constructs a Zig `ActorContext`.
+- It decodes the payload into `MsgPtr` and calls the user behavior.
+- It maps the typed `BehaviorResult` back to the C enum the runtime expects.
+
+### Decoding the message payload pointer
+
+<!-- snippet: zig/jzx/lib.zig#L150-L156 -->
+```zig title="decodeMsgPtr()" showLineNumbers=150
         fn decodeMsgPtr(message: c.jzx_message) MsgPtr {
             if (message.data) |raw| {
                 const ptr: MsgPtr = @ptrCast(@alignCast(raw));
@@ -169,7 +307,19 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
             }
             @panic("typed actor received null message payload");
         }
+```
 
+This function enforces a key invariant of the typed actor API:
+
+- `message.data` must be non-null.
+- `message.data` must be aligned appropriately for `MsgPtr`.
+
+If those assumptions are violated, the wrapper panics, because continuing would be memory-unsafe.
+
+### Mapping result enums back to C
+
+<!-- snippet: zig/jzx/lib.zig#L158-L165 -->
+```zig title="mapBehaviorResult()" showLineNumbers=158
         fn mapBehaviorResult(result: BehaviorResult) c.jzx_behavior_result {
             return switch (result) {
                 .ok => c.JZX_BEHAVIOR_OK,
@@ -178,8 +328,14 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
             };
         }
     };
-}
+```
 
+This is a pure mapping layer: Zig enum → C enum.
+
+## Error mapping helper (`mapError`)
+
+<!-- snippet: zig/jzx/lib.zig#L168-L177 -->
+```zig title="mapError()" showLineNumbers=168
 fn mapError(code: c_int) LoopError {
     return switch (code) {
         c.JZX_ERR_INVALID_ARG => LoopError.InvalidArgument,
@@ -192,184 +348,6 @@ fn mapError(code: c_int) LoopError {
 }
 ```
 
-## Line-by-line commentary
+This function converts C int error codes into the Zig `LoopError` error set.
 
-| Line | What it is / why it exists |
-| ---: | --- |
-| 1 | Imports Zig’s standard library as `std` for allocators and builtins. |
-| 2 | Blank line separating imports from public API exports. |
-| 3 | Exposes `c`, the namespace produced by `@cImport` of the public C ABI header. |
-| 4 | `@cInclude("jzx/jzx.h")` pulls in the public ABI; this is how Zig sees `c.jzx_loop`, `c.jzx_spawn`, etc. |
-| 5 | Closes the `@cImport` block. |
-| 6 | Blank line. |
-| 7 | Defines `LoopError`, the Zig error set this wrapper uses instead of raw negative ints. |
-| 8 | `CreateFailed`: `jzx_loop_create` returned null. |
-| 9 | `InvalidArgument`: caller provided invalid inputs (`JZX_ERR_INVALID_ARG`). |
-| 10 | `LoopClosed`: loop is closed/stopped (`JZX_ERR_LOOP_CLOSED`). |
-| 11 | `NoSuchActor`: target actor id is invalid/stale (`JZX_ERR_NO_SUCH_ACTOR`). |
-| 12 | `IoRegistrationFailed`: backend failed to register I/O watcher (`JZX_ERR_IO_REG_FAILED`). |
-| 13 | `NotWatched`: fd was not watched (`JZX_ERR_IO_NOT_WATCHED`). |
-| 14 | `Unknown`: fallback for all other C error codes. |
-| 15 | Closes the error set definition. |
-| 16 | Blank line. |
-| 17 | Defines `BehaviorResult`, a Zig-level enum mirroring `c.jzx_behavior_result`. |
-| 18 | Blank line. |
-| 19 | Defines `ActorContext`, a Zig-friendly subset of `c.jzx_context`. |
-| 20 | `loop`: pointer to the runtime loop, used for calling back into C APIs. |
-| 21 | `self`: the actor id of the currently running actor. |
-| 22 | Closes the struct. |
-| 23 | Blank line. |
-| 24 | Defines `SpawnOptions`, convenience defaults for typed actor spawn. |
-| 25 | `supervisor`: optional supervisor id (0 means root/unmanaged). |
-| 26 | `mailbox_cap`: optional mailbox capacity override (0 means runtime default). |
-| 27 | Closes spawn options struct. |
-| 28 | Blank line. |
-| 29 | Defines `Loop`, a small wrapper around the raw `*c.jzx_loop` pointer. |
-| 30 | `ptr`: the owned loop pointer; freed by `deinit`. |
-| 31 | Blank line. |
-| 32 | `create`: constructs a `Loop`, optionally taking an already-filled `c.jzx_config`. |
-| 33 | `config orelse blk`: if no config provided, build one using `jzx_config_init`. |
-| 34 | Declares `tmp` config as `undefined` (uninitialized) to be filled by C. |
-| 35 | Calls `c.jzx_config_init` to set defaults. |
-| 36 | `break :blk tmp` returns the initialized config from the block expression. |
-| 37 | Ends the block expression and binds the result to `cfg`. |
-| 38 | Blank line. |
-| 39 | Calls into C to allocate/init the loop; returns nullable pointer. |
-| 40 | Checks for `null` and maps it to a Zig error instead of a null deref. |
-| 41 | Returns `LoopError.CreateFailed` if allocation failed. |
-| 42 | Ends the null check. |
-| 43 | Constructs the wrapper with the non-null pointer (`.?` unwrap). |
-| 44 | Ends `create`. |
-| 45 | Blank line. |
-| 46 | `deinit`: destroys the loop and poisons `self` to catch use-after-free. |
-| 47 | Calls the C destructor, which should free all loop-owned resources. |
-| 48 | `self.* = undefined` is a defensive pattern to make accidental reuse crash earlier. |
-| 49 | Ends `deinit`. |
-| 50 | Blank line. |
-| 51 | `run`: enters the C event loop. On error, maps the C int code to a Zig error. |
-| 52 | Calls `c.jzx_loop_run`; returns an int error code. |
-| 53 | If `JZX_OK`, return success (`void`). |
-| 54 | Otherwise map the error code into a `LoopError`. |
-| 55 | Ends `run`. |
-| 56 | Blank line. |
-| 57 | `requestStop`: signals the loop to stop cooperatively. |
-| 58 | Forwards directly to `c.jzx_loop_request_stop`. |
-| 59 | Ends `requestStop`. |
-| 60 | Blank line. |
-| 61 | `watchFd`: registers fd interest for an actor (I/O readiness → messages). |
-| 62 | Calls C `jzx_watch_fd` and captures return code. |
-| 63 | If OK, return success. |
-| 64 | Otherwise map error. |
-| 65 | Ends `watchFd`. |
-| 66 | Blank line. |
-| 67 | `unwatchFd`: unregisters fd. |
-| 68 | Calls C `jzx_unwatch_fd`. |
-| 69 | If OK, return success. |
-| 70 | Otherwise map error. |
-| 71 | Ends `unwatchFd`. |
-| 72 | Ends `Loop` struct. |
-| 73 | Blank line. |
-| 74 | `ensurePointerType`: compile-time guard for typed actor message pointers. |
-| 75 | Uses `@typeInfo` to inspect the compile-time type parameter. |
-| 76 | Accepts only pointer types (e.g., `*MyMsg`, `*const MyMsg`, `[*]u8`, etc.). |
-| 77 | Otherwise fails compilation with a helpful error message. |
-| 78 | Ends the switch. |
-| 79 | Ends `ensurePointerType`. |
-| 80 | Blank line. |
-| 81 | `Actor(State, MsgPtr)`: generic factory that returns a typed actor wrapper type. |
-| 82 | Enforces `MsgPtr` is a pointer type at compile time. |
-| 83 | Blank line. |
-| 84 | `BehaviorFn`: Zig function pointer signature the user provides for typed actors. |
-| 85 | Blank line. |
-| 86 | `Shim`: heap-allocated struct holding the behavior function pointer and state pointer. |
-| 87 | `behavior`: the user’s handler function. |
-| 88 | `state`: pointer to user-managed state. |
-| 89 | Ends `Shim`. |
-| 90 | Blank line. |
-| 91 | Returns the concrete actor wrapper struct type. This struct owns the `Shim` allocation. |
-| 92 | `Self`: alias for the returned struct type itself. |
-| 93 | Blank line. |
-| 94 | `loop`: the loop pointer the actor was spawned into. |
-| 95 | `allocator`: allocator used to allocate/free the `Shim`. |
-| 96 | `shim`: pointer to the heap-allocated shim for this actor. |
-| 97 | `id`: actor id assigned by the runtime. |
-| 98 | Blank line. |
-| 99 | `spawn`: allocates the shim, wires up a C ABI trampoline, and calls `c.jzx_spawn`. |
-| 100 | `loop`: raw loop pointer to spawn into (the typed actor doesn’t own the loop). |
-| 101 | `allocator`: allocator used to allocate the shim. |
-| 102 | `state`: user state pointer. |
-| 103 | `behavior`: typed behavior function pointer. |
-| 104 | `opts`: spawn options (supervisor and mailbox). |
-| 105 | Returns `!Self` (either a typed actor wrapper or an error). |
-| 106 | Allocates a `Shim` on the heap. |
-| 107 | Stores the behavior and state pointers into the shim. |
-| 108 | Blank line. |
-| 109 | Builds a C `jzx_spawn_opts` struct; the critical field is `.behavior = trampoline`. |
-| 110 | `trampoline`: C-callable function that converts C pointers into typed Zig values. |
-| 111 | `.state = shim`: passes the shim through the C API as an opaque `void*`. |
-| 112 | `.supervisor`: passes through supervisor id. |
-| 113 | `.mailbox_cap`: passes through mailbox cap. |
-| 114 | `.name = null`: no name by default (could be extended to accept names). |
-| 115 | Closes the spawn options literal. |
-| 116 | Initializes `actor_id` output var for C to fill. |
-| 117 | Calls `c.jzx_spawn` to create the actor. |
-| 118 | Checks return code for failure. |
-| 119 | On failure, free the shim to avoid leaking memory. |
-| 120 | Map the error code. |
-| 121 | Ends error path. |
-| 122 | Returns the typed actor wrapper with references to loop/allocator/shim/id. |
-| 123 | Stores the loop pointer (not owned). |
-| 124 | Stores allocator so `destroy` can free the shim. |
-| 125 | Stores shim pointer. |
-| 126 | Stores id. |
-| 127 | Closes the return struct literal. |
-| 128 | Ends `spawn`. |
-| 129 | Blank line. |
-| 130 | `destroy`: frees the shim allocation and poisons the wrapper. |
-| 131 | Destroys the heap allocation for the shim. |
-| 132 | Poisons wrapper to catch accidental use after destroy. |
-| 133 | Ends `destroy`. |
-| 134 | Blank line. |
-| 135 | `getId`: returns the actor id (useful for sends or linking). |
-| 136 | Returns the `id` field. |
-| 137 | Ends `getId`. |
-| 138 | Blank line. |
-| 139 | `trampoline`: C ABI entrypoint called by the runtime when delivering messages. |
-| 140 | `ctx.*` dereferences the C pointer to a `c.jzx_context` struct value. |
-| 141 | Reinterprets `ctx_ptr.state` as `*Shim` (undoes the cast performed at spawn). |
-| 142 | Builds a Zig `ActorContext` with a non-null loop and actor id. |
-| 143 | Unwraps `ctx_ptr.loop` (nullable in C) into non-null. |
-| 144 | Copies actor id. |
-| 145 | Closes context literal. |
-| 146 | Decodes the message payload pointer into the user’s `MsgPtr`. |
-| 147 | Calls the user behavior and maps the result to the C enum expected by runtime. |
-| 148 | Ends `trampoline`. |
-| 149 | Blank line. |
-| 150 | `decodeMsgPtr`: converts the C `void*` payload into the typed message pointer type. |
-| 151 | Checks that the payload is non-null. |
-| 152 | Casts the raw pointer to the desired message pointer type with alignment enforcement. |
-| 153 | Returns the typed pointer. |
-| 154 | Ends the non-null branch. |
-| 155 | Panics if the payload is null because the typed actor API assumes a payload exists. |
-| 156 | Ends `decodeMsgPtr`. |
-| 157 | Blank line. |
-| 158 | `mapBehaviorResult`: maps Zig enum to C enum so the runtime can interpret it. |
-| 159 | Uses a switch to map each enum tag. |
-| 160 | `.ok` → `JZX_BEHAVIOR_OK`. |
-| 161 | `.stop` → `JZX_BEHAVIOR_STOP`. |
-| 162 | `.fail` → `JZX_BEHAVIOR_FAIL`. |
-| 163 | Ends the switch. |
-| 164 | Ends `mapBehaviorResult`. |
-| 165 | Ends the returned actor wrapper struct type. |
-| 166 | Ends `Actor` type factory. |
-| 167 | Blank line. |
-| 168 | `mapError`: converts C int error codes into Zig `LoopError` values. |
-| 169 | Switch on numeric error codes. |
-| 170 | Invalid arg mapping. |
-| 171 | Loop closed mapping. |
-| 172 | No such actor mapping. |
-| 173 | I/O registration failed mapping. |
-| 174 | Not watched mapping. |
-| 175 | Fallback to unknown. |
-| 176 | Ends the switch. |
-| 177 | Ends `mapError`. |
+Why it exists: it centralizes the mapping and keeps the wrapper methods small.

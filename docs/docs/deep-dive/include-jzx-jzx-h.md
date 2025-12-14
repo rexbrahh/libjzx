@@ -1,18 +1,18 @@
 ---
-title: C ABI — include/jzx/jzx.h (annotated)
+title: C ABI — include/jzx/jzx.h
 sidebar_position: 2
 ---
 
 # C ABI — `include/jzx/jzx.h`
 
-This header is the **public C99 ABI** for libjzx.
+This header is the **public C99 ABI contract** for libjzx. If you’re integrating from another language, or you’re changing runtime semantics, this is the file you treat as canonical.
 
-- If you’re integrating from another language, start here.
-- If you’re changing runtime semantics, treat this file as the contract you’re exposing.
+The style of this page is intentionally “textbook”: small snippets, then explanation of what each line means and why it exists.
 
-## Full source (with line numbers)
+## Header envelope (include guard + C++ ABI)
 
-```c title="include/jzx/jzx.h" showLineNumbers
+<!-- snippet: include/jzx/jzx.h#L1-L9 -->
+```c title="Header guard and C++ ABI compatibility" showLineNumbers=1
 #ifndef JZX_JZX_H
 #define JZX_JZX_H
 
@@ -22,7 +22,19 @@ This header is the **public C99 ABI** for libjzx.
 #ifdef __cplusplus
 extern "C" {
 #endif
+```
 
+This block is “plumbing” that makes the header safe to include and usable from both C and C++.
+
+- `#ifndef` / `#define`: prevents multiple inclusion from redefining types and declarations.
+- `#include <stddef.h>`: provides `size_t` used for payload lengths and allocator sizes.
+- `#include <stdint.h>`: provides fixed-width integer types (`uint32_t`, `uint64_t`, …).
+- `extern "C"`: ensures the exported symbol names remain C ABI when compiled as C++ (no name mangling).
+
+## Error model (all APIs speak `jzx_err`)
+
+<!-- snippet: include/jzx/jzx.h#L11-L25 -->
+```c title="Error codes" showLineNumbers=11
 // --- Error Model -----------------------------------------------------------
 
 typedef enum {
@@ -38,20 +50,66 @@ typedef enum {
     JZX_ERR_IO_NOT_WATCHED = -10,
     JZX_ERR_MAX_ACTORS = -11,
 } jzx_err;
+```
 
+This `enum` is the project’s “error language”.
+
+- `JZX_OK = 0`: success. Zero-as-success is idiomatic in C and convenient when bridging to other languages.
+- All `JZX_ERR_*` are negative: this keeps a clean separation between “success / positive values” and “failure values”.
+
+Each error code exists to make failure modes **explicit and machine-checkable**:
+
+- `JZX_ERR_NO_MEMORY`: allocation failed (runtime or user allocator).
+- `JZX_ERR_INVALID_ARG`: caller violated a contract (null pointer, invalid fd, invalid interest mask, etc).
+- `JZX_ERR_LOOP_CLOSED`: operation attempted after the loop is closing/stopped/destroyed.
+- `JZX_ERR_NO_SUCH_ACTOR`: invalid or stale `jzx_actor_id` (generation mismatch or slot unused).
+- `JZX_ERR_MAILBOX_FULL`: bounded mailbox is full (backpressure signal).
+- `JZX_ERR_TIMER_INVALID`: invalid or stale `jzx_timer_id` (already fired/cancelled/unknown).
+- `JZX_ERR_IO_REG_FAILED`: underlying I/O backend rejected registration.
+- `JZX_ERR_IO_NOT_WATCHED`: you tried to unwatch an fd that is not currently watched.
+- `JZX_ERR_MAX_ACTORS`: runtime is at capacity (`cfg.max_actors`).
+
+## Core identifiers and the opaque loop type
+
+<!-- snippet: include/jzx/jzx.h#L27-L32 -->
+```c title="Opaque handle types" showLineNumbers=27
 // --- Core types ------------------------------------------------------------
 
 typedef uint64_t jzx_actor_id;
 typedef uint64_t jzx_timer_id;
 
 typedef struct jzx_loop jzx_loop;
+```
 
+- `jzx_actor_id`: identifies an actor in a running loop.
+- `jzx_timer_id`: identifies a scheduled timer.
+- `typedef struct jzx_loop jzx_loop;`: `jzx_loop` is opaque in the public header so callers can only interact through the ABI functions (this keeps internal layout flexible).
+
+## Allocator interface (how the runtime allocates)
+
+<!-- snippet: include/jzx/jzx.h#L34-L38 -->
+```c title="Allocator vtable" showLineNumbers=34
 typedef struct {
     void* (*alloc)(void* ctx, size_t size);
     void (*free)(void* ctx, void* ptr);
     void* ctx;
 } jzx_allocator;
+```
 
+This is a minimal “allocator vtable”. The runtime calls it for its internal allocations.
+
+- `alloc(ctx, size)`: must return a suitably aligned pointer for any runtime allocation, or `NULL` on failure.
+- `free(ctx, ptr)`: must free a pointer previously returned by `alloc`.
+- `ctx`: user-defined pointer passed to both functions (e.g., arena state).
+
+Why it exists: systems code often needs explicit control over allocation (arena allocators, tracing allocators, embedded use cases).
+
+TODO: Document whether the runtime ever calls `free(NULL)` (shouldn’t) and what alignment requirements are assumed.
+
+## Runtime config (knobs that shape scheduling and capacity)
+
+<!-- snippet: include/jzx/jzx.h#L40-L50 -->
+```c title="jzx_config and initialization" showLineNumbers=40
 typedef struct {
     jzx_allocator allocator;
     uint32_t max_actors;
@@ -63,7 +121,23 @@ typedef struct {
 } jzx_config;
 
 void jzx_config_init(jzx_config* cfg);
+```
 
+`jzx_config` provides **hard caps** and **budgets**. These exist so runtime behavior is bounded and predictable under load.
+
+- `allocator`: which allocator the loop uses for everything it owns.
+- `max_actors`: actor table capacity (prevents unbounded growth; used for id stability).
+- `default_mailbox_cap`: default mailbox capacity for actors that don’t specify `mailbox_cap`.
+- `max_msgs_per_actor`: per-actor message budget per run (fairness; prevents one actor from monopolizing a tick).
+- `max_actors_per_tick`: global budget of runnable actors per loop tick (tick latency bound).
+- `max_io_watchers`: max number of fd watchers (bounds memory and backend registrations).
+- `io_poll_timeout_ms`: how long the loop waits for I/O when idle (backend-specific “sleep” behavior).
+- `jzx_config_init`: fills a config struct with safe defaults so callers don’t have to initialize every field manually.
+
+## Message envelope and system tags
+
+<!-- snippet: include/jzx/jzx.h#L52-L61 -->
+```c title="jzx_message and system tag space" showLineNumbers=52
 // --- Messaging -------------------------------------------------------------
 
 typedef struct {
@@ -74,7 +148,25 @@ typedef struct {
 } jzx_message;
 
 #define JZX_TAG_SYS_IO 0xFFFF0001u
+```
 
+`jzx_message` is the runtime’s envelope around a payload.
+
+- `data`: pointer to payload bytes (not necessarily owned by the runtime).
+- `len`: payload length in bytes.
+- `tag`: application/system tag used to route/interpret messages.
+- `sender`: actor id of the sender (may be 0/unknown depending on send path).
+
+`JZX_TAG_SYS_IO` reserves a tag value for runtime-generated I/O readiness notifications.
+
+TODO: Document payload ownership and lifetime rules for `data` (when is it safe to free/stack-allocate?).
+
+## Behavior interface (what an actor “is”)
+
+### Execution context
+
+<!-- snippet: include/jzx/jzx.h#L63-L69 -->
+```c title="jzx_context" showLineNumbers=63
 // --- Behavior --------------------------------------------------------------
 
 typedef struct {
@@ -82,13 +174,35 @@ typedef struct {
     jzx_actor_id self;
     jzx_loop* loop;
 } jzx_context;
+```
 
+`jzx_context` is passed to every behavior invocation.
+
+- `state`: user-owned pointer (per-actor state).
+- `self`: actor id of the currently running actor.
+- `loop`: loop pointer so behaviors can call back into the runtime (send messages, watch fds, schedule timers, etc).
+
+### Behavior result (what the actor returns)
+
+<!-- snippet: include/jzx/jzx.h#L71-L75 -->
+```c title="jzx_behavior_result" showLineNumbers=71
 typedef enum {
     JZX_BEHAVIOR_OK = 0,
     JZX_BEHAVIOR_STOP = 1,
     JZX_BEHAVIOR_FAIL = 2,
 } jzx_behavior_result;
+```
 
+This enum is how a behavior tells the runtime what to do:
+
+- `OK`: keep running; actor remains live.
+- `STOP`: graceful stop; runtime transitions actor to stopped and tears it down.
+- `FAIL`: failure; runtime marks the actor failed and triggers supervision logic if configured.
+
+### Actor lifecycle status (used in system messages)
+
+<!-- snippet: include/jzx/jzx.h#L77-L84 -->
+```c title="jzx_actor_status" showLineNumbers=77
 // Actor status codes for lifecycle/supervision messages.
 typedef enum {
     JZX_ACTOR_INIT = 0,
@@ -97,33 +211,85 @@ typedef enum {
     JZX_ACTOR_STOPPED,
     JZX_ACTOR_FAILED,
 } jzx_actor_status;
+```
 
+These statuses are used when reporting lifecycle/supervision events (e.g., child exit).
+
+### Exit reason (why an actor stopped)
+
+<!-- snippet: include/jzx/jzx.h#L86-L90 -->
+```c title="jzx_exit_reason" showLineNumbers=86
 typedef enum {
     JZX_EXIT_NORMAL = 0,
     JZX_EXIT_FAIL = 1,
     JZX_EXIT_PANIC = 2,
 } jzx_exit_reason;
+```
 
+Separating “status” from “exit reason” makes it possible to communicate intent:
+
+- “stopped normally” vs “failed” vs “panic/unrecoverable”.
+
+### Behavior function pointer type
+
+<!-- snippet: include/jzx/jzx.h#L92-L92 -->
+```c title="jzx_behavior_fn" showLineNumbers=92
 typedef jzx_behavior_result (*jzx_behavior_fn)(jzx_context* ctx, const jzx_message* msg);
+```
 
+This is the core ABI: the runtime calls this function for each delivered message.
+
+## Supervision types (policy, strategy, backoff)
+
+### Child mode (restart policy)
+
+<!-- snippet: include/jzx/jzx.h#L94-L98 -->
+```c title="jzx_child_mode" showLineNumbers=94
 typedef enum {
     JZX_CHILD_PERMANENT,
     JZX_CHILD_TRANSIENT,
     JZX_CHILD_TEMPORARY,
 } jzx_child_mode;
+```
 
+- `PERMANENT`: always restart on exit.
+- `TRANSIENT`: restart only on abnormal exit.
+- `TEMPORARY`: never restart.
+
+### Supervisor strategy (how sibling restarts happen)
+
+<!-- snippet: include/jzx/jzx.h#L100-L104 -->
+```c title="jzx_supervisor_strategy" showLineNumbers=100
 typedef enum {
     JZX_SUP_ONE_FOR_ONE,
     JZX_SUP_ONE_FOR_ALL,
     JZX_SUP_REST_FOR_ONE,
 } jzx_supervisor_strategy;
+```
 
+- `ONE_FOR_ONE`: restart only the failing child.
+- `ONE_FOR_ALL`: restart all children when one fails.
+- `REST_FOR_ONE`: restart the failing child and those started after it.
+
+### Backoff model (how restart delays evolve)
+
+<!-- snippet: include/jzx/jzx.h#L106-L110 -->
+```c title="jzx_backoff_type" showLineNumbers=106
 typedef enum {
     JZX_BACKOFF_NONE,
     JZX_BACKOFF_CONSTANT,
     JZX_BACKOFF_EXPONENTIAL,
 } jzx_backoff_type;
+```
 
+Backoff exists to prevent restart storms from saturating the system.
+
+## Spawning API (creating actors and supervisors)
+
+### Spawn a single actor
+
+<!-- snippet: include/jzx/jzx.h#L112-L122 -->
+```c title="jzx_spawn_opts and jzx_spawn()" showLineNumbers=112
 // --- Spawning --------------------------------------------------------------
 
 typedef struct {
@@ -135,7 +301,19 @@ typedef struct {
 } jzx_spawn_opts;
 
 jzx_err jzx_spawn(jzx_loop* loop, const jzx_spawn_opts* opts, jzx_actor_id* out_id);
+```
 
+- `behavior`: message handler function.
+- `state`: user state pointer passed via `jzx_context.state`.
+- `supervisor`: supervisor id (0 means “no supervisor / root”).
+- `mailbox_cap`: mailbox override (0 means “use default_mailbox_cap”).
+- `name`: optional stable name (observability/debugging).
+- `jzx_spawn`: creates the actor and returns its id via `out_id`.
+
+### Describe a supervised child
+
+<!-- snippet: include/jzx/jzx.h#L124-L132 -->
+```c title="jzx_child_spec" showLineNumbers=124
 typedef struct {
     jzx_behavior_fn behavior;
     void* state;
@@ -145,7 +323,16 @@ typedef struct {
     jzx_backoff_type backoff;
     const char* name;
 } jzx_child_spec;
+```
 
+`jzx_child_spec` is a template for a supervised child:
+
+- `restart_delay_ms` and `backoff` together describe *how long* to wait before restarting.
+
+### Supervisor configuration and spawn
+
+<!-- snippet: include/jzx/jzx.h#L134-L152 -->
+```c title="Supervisor spec and spawn" showLineNumbers=134
 typedef struct {
     jzx_supervisor_strategy strategy;
     uint32_t intensity;
@@ -165,7 +352,19 @@ jzx_err jzx_spawn_supervisor(jzx_loop* loop, const jzx_supervisor_init* init, jz
 
 jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t index,
                                 jzx_actor_id* out_id);
+```
 
+Key fields:
+
+- `intensity` + `period_ms`: restart-intensity window. If restarts exceed this window, the supervisor escalates.
+- `children` + `child_count`: defines the initial child set.
+- `jzx_spawn_supervisor`: creates a supervisor (and typically spawns its children).
+- `jzx_supervisor_child_id`: maps a child index to the current child actor id.
+
+## Loop lifecycle (create/run/stop/destroy)
+
+<!-- snippet: include/jzx/jzx.h#L154-L160 -->
+```c title="Loop lifecycle APIs" showLineNumbers=154
 // --- Loop management -------------------------------------------------------
 
 jzx_loop* jzx_loop_create(const jzx_config* cfg);
@@ -173,7 +372,18 @@ void jzx_loop_destroy(jzx_loop* loop);
 int jzx_loop_run(jzx_loop* loop);
 void jzx_loop_request_stop(jzx_loop* loop);
 void jzx_loop_free(jzx_loop* loop, void* ptr);
+```
 
+- `jzx_loop_create`: allocates and initializes the loop.
+- `jzx_loop_run`: runs until stop requested / idle / fatal error (implementation-defined).
+- `jzx_loop_request_stop`: cooperative stop signal.
+- `jzx_loop_destroy`: shuts down and frees the loop.
+- `jzx_loop_free`: frees memory that was allocated by the loop’s allocator.
+
+## Observability (observer callbacks)
+
+<!-- snippet: include/jzx/jzx.h#L162-L171 -->
+```c title="Observer callbacks" showLineNumbers=162
 typedef struct {
     void (*on_actor_start)(void* ctx, jzx_actor_id id, const char* name);
     void (*on_actor_stop)(void* ctx, jzx_actor_id id, jzx_exit_reason reason);
@@ -184,9 +394,19 @@ typedef struct {
 } jzx_observer;
 
 void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx);
+```
 
-// --- Messaging API ---------------------------------------------------------
+These callbacks exist for instrumentation without forcing a logging dependency into the runtime.
 
+- All function pointers are optional; `NULL` means “don’t report that event”.
+- `ctx` is an opaque pointer the user provides (often a metrics/logging state struct).
+
+TODO: Document callback threading (which thread invokes them), and whether reentrancy is permitted.
+
+## Messaging API (enqueue work for actors)
+
+<!-- snippet: include/jzx/jzx.h#L175-L182 -->
+```c title="Send and lifecycle control" showLineNumbers=175
 jzx_err jzx_send(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag);
 
 // Thread-safe enqueue for cross-thread sends. Payload is not copied.
@@ -195,9 +415,22 @@ jzx_err jzx_send_async(jzx_loop* loop, jzx_actor_id target, void* data, size_t l
 
 jzx_err jzx_actor_stop(jzx_loop* loop, jzx_actor_id id);
 jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id);
+```
 
-// --- Timers & IO -----------------------------------------------------------
+Important semantic split:
 
+- `jzx_send`: intended to be called from the loop thread (synchronous enqueue).
+- `jzx_send_async`: thread-safe enqueue from other threads. The payload is **not copied**.
+
+The actor control functions exist to request termination externally:
+
+- `jzx_actor_stop`: request a graceful stop.
+- `jzx_actor_fail`: force a failure (supervision should react).
+
+## Timers and I/O (time- and fd-triggered messages)
+
+<!-- snippet: include/jzx/jzx.h#L186-L212 -->
+```c title="Timers, fd watches, and system payloads" showLineNumbers=186
 jzx_err jzx_send_after(jzx_loop* loop, jzx_actor_id target, uint32_t ms, void* data, size_t len,
                        uint32_t tag, jzx_timer_id* out_timer);
 
@@ -225,7 +458,29 @@ typedef struct {
 typedef struct {
     uint32_t child_index;
 } jzx_child_restart;
+```
 
+Timers:
+
+- `jzx_send_after`: schedules a message to be enqueued later; returns a `jzx_timer_id`.
+- `jzx_cancel_timer`: best-effort cancellation of a pending timer.
+
+I/O:
+
+- `jzx_watch_fd`: register interest in `fd` readiness for `owner`.
+- `jzx_unwatch_fd`: unregister the watch.
+- `jzx_io_event`: system payload for readiness events.
+- `JZX_IO_READ` / `JZX_IO_WRITE`: readiness bit flags.
+
+Supervision system tags:
+
+- `JZX_TAG_SYS_CHILD_EXIT`: child exited notification (payload `jzx_child_exit`).
+- `JZX_TAG_SYS_CHILD_RESTART`: child restart message (payload `jzx_child_restart`).
+
+## Footer (close C++ ABI + end include guard)
+
+<!-- snippet: include/jzx/jzx.h#L214-L218 -->
+```c title="C++ ABI close + header guard end" showLineNumbers=214
 #ifdef __cplusplus
 }
 #endif
@@ -233,225 +488,4 @@ typedef struct {
 #endif // JZX_JZX_H
 ```
 
-## Line-by-line commentary
-
-| Line | What it is / why it exists |
-| ---: | --- |
-| 1 | Header guard start. Prevents multiple inclusion from producing duplicate typedefs and declarations. |
-| 2 | Header guard define. Must match line 1 to make the guard effective. |
-| 3 | Blank line separating the preprocessor guard from system includes for readability. |
-| 4 | Includes `stddef.h` for `size_t` (used by payload lengths and allocators). |
-| 5 | Includes `stdint.h` for fixed-width integer types (`uint32_t`, `uint64_t`). |
-| 6 | Blank line separating includes from C++ interop glue. |
-| 7 | Start C++ compatibility block: only enabled when compiled as C++. |
-| 8 | `extern "C"` ensures the ABI uses C symbol names (no C++ name mangling). |
-| 9 | End of the `extern "C"` opening; the corresponding close is lines 214–216. |
-| 10 | Blank line separating ABI glue from the first documented section. |
-| 11 | Section divider comment: begins the error model section. |
-| 12 | Blank line for readability. |
-| 13 | Defines the `jzx_err` enum type: the canonical error code model for the C ABI. |
-| 14 | `JZX_OK` is success (`0`), following common C conventions (0 means OK). |
-| 15 | `JZX_ERR_UNKNOWN` is a catch-all for unexpected failures (`-1`). |
-| 16 | `JZX_ERR_NO_MEMORY` indicates allocation failure (`malloc`/allocator returned `NULL`). |
-| 17 | `JZX_ERR_INVALID_ARG` indicates a caller contract violation (null pointers, invalid ids, etc.). |
-| 18 | `JZX_ERR_LOOP_CLOSED` indicates an operation was attempted on a stopped/destroyed loop. |
-| 19 | `JZX_ERR_NO_SUCH_ACTOR` indicates the `jzx_actor_id` doesn’t resolve to a live actor. |
-| 20 | `JZX_ERR_MAILBOX_FULL` indicates the target mailbox is at capacity (backpressure signal). |
-| 21 | `JZX_ERR_TIMER_INVALID` indicates a timer id is unknown/stale/cancelled. |
-| 22 | `JZX_ERR_IO_REG_FAILED` indicates the underlying event backend could not register the watcher. |
-| 23 | `JZX_ERR_IO_NOT_WATCHED` indicates an unwatch operation targeted an fd that wasn’t registered. |
-| 24 | `JZX_ERR_MAX_ACTORS` indicates the runtime hit its configured actor capacity. |
-| 25 | Closes the enum and names it `jzx_err` so API functions can return a stable error type. |
-| 26 | Blank line separating error codes from core type definitions. |
-| 27 | Section divider: core types that appear across the API. |
-| 28 | Blank line for readability. |
-| 29 | `jzx_actor_id` is an opaque actor identifier; the runtime decides its encoding. |
-| 30 | `jzx_timer_id` is an opaque timer identifier; used to cancel/track scheduled timers. |
-| 31 | Blank line. |
-| 32 | Forward-declares `struct jzx_loop`; the loop is opaque from the public header. |
-| 33 | Blank line. |
-| 34 | Starts `jzx_allocator`, a “pluggable allocator” interface used by the runtime. |
-| 35 | `alloc`: user-provided allocation function (or `NULL` if not provided). |
-| 36 | `free`: user-provided free function (or `NULL` if not provided). |
-| 37 | `ctx`: user-defined context pointer passed to `alloc/free` (e.g., arena state). |
-| 38 | Closes the allocator struct type. |
-| 39 | Blank line. |
-| 40 | Starts `jzx_config`, runtime configuration passed to `jzx_loop_create`. |
-| 41 | `allocator`: which allocator the runtime should use for its internal allocations. |
-| 42 | `max_actors`: hard cap on actors to bound memory usage and keep ids compact. |
-| 43 | `default_mailbox_cap`: default mailbox capacity if a spawn call doesn’t override it. |
-| 44 | `max_msgs_per_actor`: per-actor work budget per scheduling run (fairness/backpressure). |
-| 45 | `max_actors_per_tick`: cap on how many actors can run per event-loop “tick”. |
-| 46 | `max_io_watchers`: bound on how many fds can be watched simultaneously. |
-| 47 | `io_poll_timeout_ms`: how long the loop will wait for I/O when idle (backend-specific). |
-| 48 | Closes the config struct type. |
-| 49 | Blank line. |
-| 50 | `jzx_config_init` fills `cfg` with defaults (so callers don’t have to set every field). |
-| 51 | Blank line. |
-| 52 | Section divider: messaging payload wrapper used by the scheduler. |
-| 53 | Blank line. |
-| 54 | Starts `jzx_message`, the runtime’s internal envelope around a payload. |
-| 55 | `data`: pointer to the payload bytes (not necessarily owned by the runtime). |
-| 56 | `len`: byte length of the payload. |
-| 57 | `tag`: application/system tag used to discriminate message kinds. |
-| 58 | `sender`: actor id of the sender (0/unknown allowed depending on API path). |
-| 59 | Closes the message struct type. |
-| 60 | Blank line. |
-| 61 | `JZX_TAG_SYS_IO`: reserved tag for system I/O notifications (used internally). |
-| 62 | Blank line. |
-| 63 | Section divider: actor behaviors and behavior-related types. |
-| 64 | Blank line. |
-| 65 | Starts `jzx_context`, the per-delivery context passed to `jzx_behavior_fn`. |
-| 66 | `state`: user state pointer for this actor (opaque to runtime). |
-| 67 | `self`: actor’s own id (useful for self-sends or logging). |
-| 68 | `loop`: pointer back to the owning loop for performing API operations from behaviors. |
-| 69 | Closes the context struct. |
-| 70 | Blank line. |
-| 71 | Starts `jzx_behavior_result`: how the behavior tells the runtime what to do next. |
-| 72 | `JZX_BEHAVIOR_OK`: message handled; keep actor alive. |
-| 73 | `JZX_BEHAVIOR_STOP`: graceful stop request; runtime transitions actor to stopped. |
-| 74 | `JZX_BEHAVIOR_FAIL`: failure signal; runtime marks actor failed and triggers supervision. |
-| 75 | Closes behavior-result enum. |
-| 76 | Blank line. |
-| 77 | Comment: these status codes appear in lifecycle/supervision system messages. |
-| 78 | Starts `jzx_actor_status`: state machine label for an actor’s lifecycle. |
-| 79 | `JZX_ACTOR_INIT`: actor allocated/created but not yet running user code. |
-| 80 | `JZX_ACTOR_RUNNING`: actor is live and can process messages. |
-| 81 | `JZX_ACTOR_STOPPING`: actor is shutting down (typically after stop request). |
-| 82 | `JZX_ACTOR_STOPPED`: actor is fully stopped and should not accept messages. |
-| 83 | `JZX_ACTOR_FAILED`: actor terminated due to failure. |
-| 84 | Closes actor-status enum. |
-| 85 | Blank line. |
-| 86 | Starts `jzx_exit_reason`: why an actor stopped (normal vs failure). |
-| 87 | `JZX_EXIT_NORMAL`: stopped intentionally (behavior returned stop). |
-| 88 | `JZX_EXIT_FAIL`: stopped due to failure (behavior returned fail or runtime error). |
-| 89 | `JZX_EXIT_PANIC`: abnormal termination (used when runtime catches fatal/unrecoverable error). |
-| 90 | Closes exit-reason enum. |
-| 91 | Blank line. |
-| 92 | Defines `jzx_behavior_fn`: the C function pointer signature for actor behaviors. |
-| 93 | Blank line. |
-| 94 | Starts `jzx_child_mode`: supervision policy for a child actor. |
-| 95 | `PERMANENT`: always restart child on exit (regardless of reason). |
-| 96 | `TRANSIENT`: restart only on abnormal exit (fail/panic). |
-| 97 | `TEMPORARY`: never restart (one-shot child). |
-| 98 | Closes child-mode enum. |
-| 99 | Blank line. |
-| 100 | Starts `jzx_supervisor_strategy`: how failures propagate among siblings. |
-| 101 | `ONE_FOR_ONE`: restart only the failed child. |
-| 102 | `ONE_FOR_ALL`: restart all children when one fails. |
-| 103 | `REST_FOR_ONE`: restart the failed child and those started after it. |
-| 104 | Closes supervisor-strategy enum. |
-| 105 | Blank line. |
-| 106 | Starts `jzx_backoff_type`: restart backoff model for delaying restarts. |
-| 107 | `NONE`: no backoff (restart immediately). |
-| 108 | `CONSTANT`: fixed delay backoff. |
-| 109 | `EXPONENTIAL`: exponential backoff (typically doubling with saturation). |
-| 110 | Closes backoff-type enum. |
-| 111 | Blank line. |
-| 112 | Section divider: spawn APIs and supervision specs. |
-| 113 | Blank line. |
-| 114 | Starts `jzx_spawn_opts`, options for spawning a single actor. |
-| 115 | `behavior`: function to call for each delivered message. |
-| 116 | `state`: user-owned state pointer accessible via `ctx->state`. |
-| 117 | `supervisor`: supervisor actor id (0 meaning “no supervisor” / root). |
-| 118 | `mailbox_cap`: mailbox capacity override (0 means “use default”). |
-| 119 | `name`: optional stable name for observability/debugging. |
-| 120 | Closes spawn-options struct. |
-| 121 | Blank line. |
-| 122 | `jzx_spawn`: creates an actor, assigns it an id, and schedules it to run. |
-| 123 | Blank line. |
-| 124 | Starts `jzx_child_spec`: template for supervised children. |
-| 125 | `behavior`: child’s behavior function. |
-| 126 | `state`: child’s state pointer. |
-| 127 | `mode`: restart policy (permanent/transient/temporary). |
-| 128 | `mailbox_cap`: mailbox capacity override for this child. |
-| 129 | `restart_delay_ms`: base delay before restarting this child. |
-| 130 | `backoff`: how to expand delay across repeated restarts. |
-| 131 | `name`: optional name for this child (observability/debugging). |
-| 132 | Closes child-spec struct. |
-| 133 | Blank line. |
-| 134 | Starts `jzx_supervisor_spec`: config applied to a supervisor actor. |
-| 135 | `strategy`: how to restart children as a set. |
-| 136 | `intensity`: max restarts allowed within `period_ms` (restart storm protection). |
-| 137 | `period_ms`: time window for the intensity counter. |
-| 138 | `backoff`: supervisor-level backoff model (if used by implementation). |
-| 139 | `backoff_delay_ms`: base delay for the supervisor’s backoff. |
-| 140 | Closes supervisor-spec struct. |
-| 141 | Blank line. |
-| 142 | Starts `jzx_supervisor_init`: initializer for spawning a supervisor with children. |
-| 143 | `children`: pointer to an array of `jzx_child_spec` templates. |
-| 144 | `child_count`: number of entries in `children`. |
-| 145 | `supervisor`: configuration for supervisor strategy/intensity/backoff. |
-| 146 | Closes supervisor-init struct. |
-| 147 | Blank line. |
-| 148 | `jzx_spawn_supervisor`: spawns a supervisor actor and its initial children. |
-| 149 | Continuation: returns supervisor id in `out_id` and links supervisor under `parent`. |
-| 150 | Blank line. |
-| 151 | `jzx_supervisor_child_id`: query helper to retrieve a child’s actor id by index. |
-| 152 | Continuation: `index` refers to the child list order in the supervisor init/spec. |
-| 153 | Blank line. |
-| 154 | Section divider: loop creation/lifecycle APIs. |
-| 155 | Blank line. |
-| 156 | `jzx_loop_create`: allocates and initializes a runtime loop using `cfg`. |
-| 157 | `jzx_loop_destroy`: shuts down the loop and releases all owned resources. |
-| 158 | `jzx_loop_run`: enters the event loop and runs until stop is requested or idle. |
-| 159 | `jzx_loop_request_stop`: asks the loop to stop as soon as practical. |
-| 160 | `jzx_loop_free`: frees memory that was allocated by the loop’s configured allocator. |
-| 161 | Blank line. |
-| 162 | Starts `jzx_observer`: optional callbacks for lifecycle/supervision/pressure signals. |
-| 163 | `on_actor_start`: called when an actor becomes live (after spawn). |
-| 164 | `on_actor_stop`: called when an actor stops, with an exit reason. |
-| 165 | `on_actor_restart`: called when a supervisor restarts a child, including attempt count. |
-| 166 | Continuation line: ensures the signature is readable within the column limit. |
-| 167 | `on_supervisor_escalate`: called when restart intensity is exceeded and escalation occurs. |
-| 168 | `on_mailbox_full`: called when send fails due to mailbox capacity. |
-| 169 | Closes observer struct. |
-| 170 | Blank line. |
-| 171 | `jzx_loop_set_observer`: installs callbacks + an opaque `ctx` pointer for them. |
-| 172 | Blank line. |
-| 173 | Section divider: message send APIs. |
-| 174 | Blank line. |
-| 175 | `jzx_send`: enqueue a message to `target` from the loop thread (synchronous API). |
-| 176 | Blank line. |
-| 177 | Comment: clarifies that `jzx_send_async` is thread-safe and does not copy payload bytes. |
-| 178 | Comment: clarifies semantics: enqueue success does not imply delivery success. |
-| 179 | `jzx_send_async`: enqueue from other threads; delivery is best-effort. |
-| 180 | Blank line. |
-| 181 | `jzx_actor_stop`: request a graceful stop for an actor (as if it returned STOP). |
-| 182 | `jzx_actor_fail`: mark an actor failed (as if it returned FAIL) to trigger supervision. |
-| 183 | Blank line. |
-| 184 | Section divider: timers and I/O watchers. |
-| 185 | Blank line. |
-| 186 | `jzx_send_after`: schedule a message after `ms` milliseconds; returns `out_timer`. |
-| 187 | Continuation: breaks a long signature across lines for readability. |
-| 188 | Blank line. |
-| 189 | `jzx_cancel_timer`: cancel a previously scheduled timer id. |
-| 190 | Blank line. |
-| 191 | `jzx_watch_fd`: register interest in fd readiness and deliver system I/O messages. |
-| 192 | `jzx_unwatch_fd`: unregister the watch for an fd. |
-| 193 | Blank line. |
-| 194 | Starts `jzx_io_event`: payload delivered with `JZX_TAG_SYS_IO`. |
-| 195 | `fd`: the file descriptor that became ready. |
-| 196 | `readiness`: bitmask of `JZX_IO_READ`/`JZX_IO_WRITE` indicating which events fired. |
-| 197 | Closes I/O event struct. |
-| 198 | Blank line. |
-| 199 | `JZX_IO_READ` readiness flag bit. |
-| 200 | `JZX_IO_WRITE` readiness flag bit. |
-| 201 | Blank line. |
-| 202 | `JZX_TAG_SYS_CHILD_EXIT`: reserved system tag for “child exited” supervision message. |
-| 203 | `JZX_TAG_SYS_CHILD_RESTART`: reserved system tag for “child restart request/notice”. |
-| 204 | Blank line. |
-| 205 | Starts `jzx_child_exit`: system-message payload describing an exiting child. |
-| 206 | `child`: the child actor id. |
-| 207 | `status`: the child’s final status (`STOPPED` vs `FAILED`). |
-| 208 | Closes child-exit payload struct. |
-| 209 | Blank line. |
-| 210 | Starts `jzx_child_restart`: system-message payload describing which child index to restart. |
-| 211 | `child_index`: index into the supervisor’s child array (matches `jzx_supervisor_init`). |
-| 212 | Closes child-restart payload struct. |
-| 213 | Blank line. |
-| 214 | Close the C++ `extern "C"` block. |
-| 215 | End of `extern "C"` closing brace. |
-| 216 | End of C++ conditional compilation block. |
-| 217 | Blank line. |
-| 218 | Header guard end; ensures only one logical inclusion of this header. |
+This is the closing pair for the opening `extern "C"` and include guard at the top.

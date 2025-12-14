@@ -5,11 +5,345 @@ sidebar_position: 7
 
 # Integration tests — `zig/tests/basic.zig`
 
-This file contains end-to-end tests that exercise the runtime via the C ABI and Zig wrapper.
+This file is an end-to-end test suite: it exercises the runtime through the public C ABI and the Zig wrapper. Treat it as executable documentation of runtime contracts.
 
-## Full source (with line numbers)
+This page uses a textbook style: focused snippets with explanation, plus an appendix with the full source.
 
-```zig title="zig/tests/basic.zig" showLineNumbers
+## Imports and shared helpers
+
+<!-- snippet: zig/tests/basic.zig#L1-L11 -->
+```zig title="Imports and AsyncArgs" showLineNumbers=1
+const std = @import("std");
+const jzx = @import("jzx");
+const c = jzx.c;
+const posix = std.posix;
+
+const AsyncArgs = struct {
+    loop: *c.jzx_loop,
+    actor: c.jzx_actor_id,
+    payload: *u32,
+};
+```
+
+- `std`: Zig standard library, including `std.testing`.
+- `jzx`: Zig wrapper module under `zig/jzx/lib.zig`.
+- `c = jzx.c`: the C ABI import namespace.
+- `posix`: used for fd helpers in I/O tests.
+- `AsyncArgs`: arguments passed into helper threads for async-send tests.
+
+## A minimal “increment and stop” behavior
+
+<!-- snippet: zig/tests/basic.zig#func=increment_behavior -->
+```zig title="increment_behavior()" showLineNumbers=12
+fn increment_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const msg_ptr = @as(*const c.jzx_message, @ptrCast(msg));
+    const state_ptr = @as(*u32, @ptrFromInt(@intFromPtr(ctx_ptr.state.?)));
+    if (msg_ptr.data) |data_ptr| {
+        const value_ptr = @as(*const u32, @ptrFromInt(@intFromPtr(data_ptr)));
+        state_ptr.* += value_ptr.*;
+    }
+    return c.JZX_BEHAVIOR_STOP;
+}
+```
+
+This behavior is intentionally small and deterministic:
+
+- It interprets `ctx_ptr.state` as `*u32` and increments it by the incoming payload `*u32`.
+- It returns `JZX_BEHAVIOR_STOP`, which makes the actor stop after processing the message.
+
+Why it exists: many tests want “spawn actor → send message → run loop → assert state changed” without having to write a bespoke behavior each time.
+
+## Observer hooks used by tests
+
+<!-- snippet: zig/tests/basic.zig#func=observerOnStart -->
+```zig title="observerOnStart()" showLineNumbers=37
+fn observerOnStart(ctx: ?*anyopaque, id: c.jzx_actor_id, name: [*c]const u8) callconv(.c) void {
+    _ = name;
+    const state = @as(*ObserverState, @ptrCast(@alignCast(ctx.?)));
+    state.start_count += 1;
+    state.last_start = id;
+}
+```
+
+<!-- snippet: zig/tests/basic.zig#func=observerOnStop -->
+```zig title="observerOnStop()" showLineNumbers=44
+fn observerOnStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exit_reason) callconv(.c) void {
+    const state = @as(*ObserverState, @ptrCast(@alignCast(ctx.?)));
+    state.stop_count += 1;
+    state.last_stop = id;
+    state.last_stop_reason = reason;
+}
+```
+
+<!-- snippet: zig/tests/basic.zig#func=observerOnMailboxFull -->
+```zig title="observerOnMailboxFull()" showLineNumbers=51
+fn observerOnMailboxFull(ctx: ?*anyopaque, target: c.jzx_actor_id) callconv(.c) void {
+    const state = @as(*ObserverState, @ptrCast(@alignCast(ctx.?)));
+    state.mailbox_full_count += 1;
+    _ = target;
+}
+```
+
+These callbacks accumulate counts and last-seen ids into a test-owned `ObserverState`.
+
+Why it exists: observer behavior is part of the runtime’s contract, so tests assert it fires correctly without requiring logs.
+
+## Timer behavior used by tests
+
+<!-- snippet: zig/tests/basic.zig#func=timer_behavior -->
+```zig title="timer_behavior()" showLineNumbers=57
+fn timer_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*TimerState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    _ = msg;
+    state.hits += 1;
+    if (state.hits >= state.target) {
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    return c.JZX_BEHAVIOR_OK;
+}
+```
+
+This behavior counts timer hits and stops after reaching `target`.
+
+Why it exists: timer tests need an actor that can receive repeated timer messages and stop deterministically.
+
+## Representative tests (how to read them)
+
+The file contains many tests. The pattern is usually:
+
+1. Create a loop.
+2. Spawn actor(s).
+3. Enqueue some work (message, async send, timer, I/O readiness).
+4. Run the loop.
+5. Assert runtime-visible outcomes (state changes, errors, ordering, fairness).
+
+### Message delivery: actor receives and processes a message
+
+<!-- snippet: zig/tests/basic.zig#zigtest=actor receives and processes a message -->
+```zig title="test: actor receives and processes a message" showLineNumbers=68
+test "actor receives and processes a message" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 5;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 1));
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 5), state);
+    try std.testing.expectEqual(c.JZX_ERR_NO_SUCH_ACTOR, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 1));
+}
+```
+
+What it’s asserting:
+
+- `jzx_spawn` creates an actor and returns an id.
+- `jzx_send` enqueues a message.
+- `loop.run()` delivers the message and stops the actor.
+- After stop, sending to the same id returns `JZX_ERR_NO_SUCH_ACTOR`.
+
+### Backpressure: mailbox full returns error
+
+<!-- snippet: zig/tests/basic.zig#zigtest=mailbox full returns error -->
+```zig title="test: mailbox full returns error" showLineNumbers=141
+test "mailbox full returns error" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 1,
+        .name = null,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 1;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 0));
+    try std.testing.expectEqual(c.JZX_ERR_MAILBOX_FULL, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 0));
+
+    try loop.run();
+}
+```
+
+What it’s asserting:
+
+- Mailboxes are bounded.
+- When capacity is 1, the second send fails with `JZX_ERR_MAILBOX_FULL`.
+
+### Scheduler fairness: ping pong actors share work fairly
+
+<!-- snippet: zig/tests/basic.zig#zigtest=ping pong actors share work fairly -->
+```zig title="test: ping pong actors share work fairly" showLineNumbers=498
+test "ping pong actors share work fairly" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var id_a: c.jzx_actor_id = 0;
+    var id_b: c.jzx_actor_id = 0;
+    var partner_a: ?c.jzx_actor_id = 0;
+    var partner_b: ?c.jzx_actor_id = 0;
+    var state_a = PingPongState{ .loop = loop.ptr, .partner = &partner_a, .remaining = 10, .hits = 0 };
+    var state_b = PingPongState{ .loop = loop.ptr, .partner = &partner_b, .remaining = 10, .hits = 0 };
+
+    var opts_a = c.jzx_spawn_opts{ .behavior = pingPongBehavior, .state = &state_a, .supervisor = 0, .mailbox_cap = 0, .name = null };
+    var opts_b = c.jzx_spawn_opts{ .behavior = pingPongBehavior, .state = &state_b, .supervisor = 0, .mailbox_cap = 0, .name = null };
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts_a, &id_a));
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts_b, &id_b));
+    partner_a = id_b;
+    partner_b = id_a;
+
+    var init: u32 = 1;
+    _ = c.jzx_send(loop.ptr, id_a, &init, @sizeOf(u32), 0);
+    _ = c.jzx_send(loop.ptr, id_b, &init, @sizeOf(u32), 0);
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 11), state_a.hits);
+    try std.testing.expectEqual(@as(u32, 11), state_b.hits);
+}
+```
+
+What it’s asserting:
+
+- The scheduler does not starve one runnable actor when another is “chatty”.
+- With the configured budgets, both actors make progress.
+
+### I/O readiness: io watcher delivers readiness
+
+<!-- snippet: zig/tests/basic.zig#zigtest=io watcher delivers readiness -->
+```zig title="test: io watcher delivers readiness" showLineNumbers=580
+test "io watcher delivers readiness" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = io_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    const pipefds = try posix.pipe();
+    defer {
+        posix.close(pipefds[0]);
+        posix.close(pipefds[1]);
+    }
+
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_watch_fd(loop.ptr, pipefds[0], actor_id, c.JZX_IO_READ));
+
+    var writer = try std.Thread.spawn(.{}, pipe_writer, .{pipefds[1]});
+    writer.join();
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 1), state);
+}
+```
+
+What it’s asserting:
+
+- `jzx_watch_fd` registers interest.
+- A readiness event is delivered as a system message.
+- The owning actor can observe and handle the event.
+
+### Supervision: supervisor escalates when intensity exceeded
+
+<!-- snippet: zig/tests/basic.zig#zigtest=supervisor escalates when intensity exceeded -->
+```zig title="test: supervisor escalates when intensity exceeded" showLineNumbers=836
+test "supervisor escalates when intensity exceeded" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var child_state = RestartState{};
+    var child_spec = [_]c.jzx_child_spec{.{
+        .behavior = alwaysFail,
+        .state = &child_state,
+        .mode = c.JZX_CHILD_TRANSIENT,
+        .mailbox_cap = 0,
+        .restart_delay_ms = 0,
+        .backoff = c.JZX_BACKOFF_NONE,
+        .name = null,
+    }};
+    var sup_init = c.jzx_supervisor_init{
+        .children = &child_spec,
+        .child_count = child_spec.len,
+        .supervisor = .{
+            .strategy = c.JZX_SUP_ONE_FOR_ONE,
+            .intensity = 2,
+            .period_ms = 1000,
+            .backoff = c.JZX_BACKOFF_NONE,
+            .backoff_delay_ms = 0,
+        },
+    };
+
+    var sup_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn_supervisor(loop.ptr, &sup_init, 0, &sup_id));
+
+    var obs_state = EscalationObsState{ .sup_id = sup_id };
+    var obs = c.jzx_observer{
+        .on_actor_start = null,
+        .on_actor_stop = escalationOnActorStop,
+        .on_actor_restart = null,
+        .on_supervisor_escalate = escalationOnSupervisorEscalate,
+        .on_mailbox_full = null,
+    };
+    c.jzx_loop_set_observer(loop.ptr, &obs, @ptrCast(&obs_state));
+
+    var driver_state = EscalationDriverState{
+        .sup_id = sup_id,
+        .obs = &obs_state,
+    };
+    var driver_opts = c.jzx_spawn_opts{
+        .behavior = escalationDriver,
+        .state = &driver_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var driver_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &driver_opts, &driver_id));
+    _ = c.jzx_send(loop.ptr, driver_id, null, 0, 0);
+
+    try loop.run();
+
+    try std.testing.expectEqual(@as(u32, 1), obs_state.escalations);
+    try std.testing.expect(obs_state.sup_stopped);
+    try std.testing.expectEqual(@as(c.jzx_exit_reason, c.JZX_EXIT_FAIL), obs_state.sup_stop_reason);
+    try std.testing.expect(!driver_state.timed_out);
+    try std.testing.expect(child_state.runs >= 3);
+}
+```
+
+What it’s asserting:
+
+- Restart intensity windows are enforced.
+- When restarts exceed the configured intensity, the supervisor escalates (and the observer sees it).
+
+## Appendix: full file
+
+<details>
+<summary>Show full <code>zig/tests/basic.zig</code></summary>
+
+<!-- snippet: zig/tests/basic.zig#all -->
+```zig title="zig/tests/basic.zig (full source)" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");
 const c = jzx.c;
@@ -1405,43 +1739,4 @@ test "supervisor rest_for_one restarts downstream children" {
 }
 ```
 
-## How to read this test suite
-
-- The tests are not “unit tests” of single functions; they are **behavioral checks** of runtime contracts:
-  - actor id generation and stale id rejection
-  - mailbox backpressure
-  - observer callbacks
-  - async send behavior (thread-safety + FIFO)
-  - timers (delivery, ordering, cancellation)
-  - fairness (ping-pong scheduling)
-  - I/O readiness delivery
-  - supervision (restart policies, intensity windows, backoff, strategy semantics)
-
-## Test index (what each test is asserting)
-
-Use this list as a map when you change runtime semantics:
-
-| Test | Line | What it’s asserting |
-| --- | ---: | --- |
-| `actor receives and processes a message` | 68 | message delivery + behavior stop |
-| `actor id generations reject stale ids after slot reuse` | 91 | generation counter correctness |
-| `mailbox full returns error` | 141 | bounded mailbox enforcement |
-| `observer hooks receive lifecycle + mailbox full` | 163 | observer callouts fire and report correct ids |
-| `async send dispatches message` | 233 | cross-thread enqueue drains into main loop |
-| `async send wakes blocking loop` | 260 | wakeup path works when loop is waiting |
-| `async send preserves FIFO ordering` | 298 | async queue preserves enqueue order |
-| `timer delivers message` | 344 | timers enqueue a message after delay |
-| `cancelled timer does not fire` | 368 | cancellation removes pending timer |
-| `timer drop when actor stops` | 393 | timer delivery to stopped actors is handled safely |
-| `many timers fire` | 416 | multiple timers execute and deliver |
-| `timer delivery preserves enqueue order` | 443 | ordering constraints for timers targeting same actor |
-| `ping pong actors share work fairly` | 498 | scheduler fairness between runnable actors |
-| `typed actor increments state` | 539 | Zig typed actor trampoline works |
-| `io watcher delivers readiness` | 580 | I/O readiness flows to actor via system message |
-| `io rapid watch and unwatch` | 610 | watch/unwatch churn does not leak or crash |
-| `supervisor restarts transient child once` | 706 | transient restarts on failure |
-| `supervisor escalates when intensity exceeded` | 836 | intensity window triggers escalation |
-| `supervisor backoff delays restart` | 966 | constant backoff delays restart |
-| `supervisor exponential backoff delays restart` | 1036 | exponential delay increases with attempts |
-| `supervisor one_for_all restarts all children` | 1170 | one-for-all strategy semantics |
-| `supervisor rest_for_one restarts downstream children` | 1334 | rest-for-one strategy semantics |
+</details>

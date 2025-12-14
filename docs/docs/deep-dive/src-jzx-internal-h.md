@@ -1,15 +1,18 @@
 ---
-title: Runtime internals — src/jzx_internal.h (annotated)
+title: Runtime internals — src/jzx_internal.h
 sidebar_position: 3
 ---
 
 # Runtime internals — `src/jzx_internal.h`
 
-This header is **private to the runtime**. It defines the structs and internal helpers that back the public ABI in `include/jzx/jzx.h`.
+This header is **private to the runtime**. It defines the concrete layout of `struct jzx_loop` (opaque publicly) and the internal structs that make the C ABI work.
 
-## Full source (with line numbers)
+This page uses a “textbook” format: small snippets with immediate explanation.
 
-```c title="src/jzx_internal.h" showLineNumbers
+## Header guard and includes
+
+<!-- snippet: src/jzx_internal.h#L1-L8 -->
+```c title="Header guard and includes" showLineNumbers=1
 #ifndef JZX_INTERNAL_H
 #define JZX_INTERNAL_H
 
@@ -18,12 +21,29 @@ This header is **private to the runtime**. It defines the structs and internal h
 #include <pthread.h>
 #include <stddef.h>
 #include <stdint.h>
+```
 
+- Includes the public ABI header (`jzx/jzx.h`) to ensure internal structs match public types.
+- Pulls in pthread types because the runtime uses:
+  - a mutex-protected async send queue
+  - a timer thread + condition variable
+
+## Forward declarations (internal node types)
+
+<!-- snippet: src/jzx_internal.h#L10-L13 -->
+```c title="Forward declarations" showLineNumbers=10
 typedef struct jzx_async_msg jzx_async_msg;
 typedef struct jzx_timer_entry jzx_timer_entry;
 typedef struct jzx_io_watch jzx_io_watch;
 typedef struct jzx_xev jzx_xev;
+```
 
+These exist so the file can declare pointers to these structs before defining them later. It keeps the `jzx_loop` layout readable without requiring full type definitions earlier.
+
+## libxev integration hooks (implemented in Zig)
+
+<!-- snippet: src/jzx_internal.h#L15-L22 -->
+```c title="xev backend interface" showLineNumbers=15
 jzx_xev* jzx_xev_create(void);
 void jzx_xev_destroy(jzx_xev* state);
 void jzx_xev_wakeup(jzx_xev* state);
@@ -32,7 +52,20 @@ jzx_err jzx_xev_watch_fd(jzx_xev* state, jzx_loop* loop, int fd, uint32_t intere
 void jzx_xev_unwatch_fd(jzx_xev* state, int fd);
 
 uint8_t jzx_io_xev_notify(jzx_loop* loop, int fd, uint32_t readiness);
+```
 
+The runtime’s event-loop backend is implemented in `src/jzx_xev.zig` and exposed to C via exported functions.
+
+- `jzx_xev_create/destroy`: lifetime management for the backend state.
+- `jzx_xev_wakeup`: used to wake a blocking loop when cross-thread work arrives.
+- `jzx_xev_run`: advances the backend (mode is implementation-defined).
+- `jzx_xev_watch_fd/unwatch_fd`: register/unregister fd readiness interest.
+- `jzx_io_xev_notify`: callback invoked by the backend to notify the runtime of readiness.
+
+## Mailbox ring buffer (per-actor queue)
+
+<!-- snippet: src/jzx_internal.h#L24-L30 -->
+```c title="jzx_mailbox_impl" showLineNumbers=24
 typedef struct {
     jzx_message* buffer;
     uint32_t capacity;
@@ -40,14 +73,39 @@ typedef struct {
     uint32_t tail;
     uint32_t count;
 } jzx_mailbox_impl;
+```
 
+This struct is the in-memory representation of an actor mailbox:
+
+- `buffer`: ring buffer holding `jzx_message` values.
+- `capacity`: fixed size of the ring buffer.
+- `head` / `tail`: ring indices.
+- `count`: number of queued messages (distinguishes empty vs full).
+
+Why it exists: bounded ring buffers provide predictable memory and explicit backpressure (`JZX_ERR_MAILBOX_FULL`).
+
+## Supervision state (child bookkeeping + restart intensity)
+
+### Per-child state
+
+<!-- snippet: src/jzx_internal.h#L32-L37 -->
+```c title="jzx_child_state" showLineNumbers=32
 typedef struct {
     jzx_child_spec spec;
     jzx_actor_id id;
     uint32_t restart_count;
     uint64_t last_restart_ms;
 } jzx_child_state;
+```
 
+- `spec`: the desired “template” for this child (behavior, restart policy).
+- `id`: current live actor id for this child (0 when not running).
+- `restart_count` / `last_restart_ms`: used for backoff and intensity logic.
+
+### Per-supervisor state
+
+<!-- snippet: src/jzx_internal.h#L39-L45 -->
+```c title="jzx_supervisor_state" showLineNumbers=39
 typedef struct {
     jzx_supervisor_spec config;
     jzx_child_state* children;
@@ -55,7 +113,16 @@ typedef struct {
     uint32_t intensity_window_count;
     uint64_t intensity_window_start_ms;
 } jzx_supervisor_state;
+```
 
+- `config`: strategy + intensity window config.
+- `children`: heap array of per-child state.
+- `intensity_window_*`: tracking restarts within a time window.
+
+## Actor representation (what the scheduler runs)
+
+<!-- snippet: src/jzx_internal.h#L47-L56 -->
+```c title="jzx_actor" showLineNumbers=47
 typedef struct jzx_actor {
     jzx_actor_id id;
     jzx_actor_status status;
@@ -66,7 +133,22 @@ typedef struct jzx_actor {
     jzx_mailbox_impl mailbox;
     uint8_t in_run_queue;
 } jzx_actor;
+```
 
+Key fields:
+
+- `id`: actor id for lookup and messaging.
+- `status`: lifecycle status.
+- `behavior`: function pointer called on delivery.
+- `state`: user-owned pointer passed through `jzx_context`.
+- `supervisor` / `supervisor_state`: supervision linkage and state (only non-null for supervisor actors).
+- `mailbox`: per-actor mailbox.
+- `in_run_queue`: prevents duplicate enqueue into the run queue.
+
+## Actor table (id → actor mapping, with generations)
+
+<!-- snippet: src/jzx_internal.h#L58-L65 -->
+```c title="jzx_actor_table" showLineNumbers=58
 typedef struct {
     jzx_actor** slots;
     uint32_t* generations;
@@ -75,7 +157,20 @@ typedef struct {
     uint32_t free_top;
     uint32_t used;
 } jzx_actor_table;
+```
 
+This table implements the actor-id scheme:
+
+- `slots[idx]` stores the actor pointer.
+- `generations[idx]` increments when a slot is reused.
+- `free_stack` enables fast allocate/free of indices.
+
+Why it exists: it enables fast lookup and robust stale-id rejection.
+
+## Run queue (runnable actors waiting to run)
+
+<!-- snippet: src/jzx_internal.h#L67-L73 -->
+```c title="jzx_run_queue" showLineNumbers=67
 typedef struct {
     jzx_actor** entries;
     uint32_t capacity;
@@ -83,7 +178,14 @@ typedef struct {
     uint32_t tail;
     uint32_t count;
 } jzx_run_queue;
+```
 
+This is a ring buffer of runnable actor pointers used by the scheduler.
+
+## The loop (everything the runtime owns)
+
+<!-- snippet: src/jzx_internal.h#L75-L101 -->
+```c title="struct jzx_loop" showLineNumbers=75
 struct jzx_loop {
     jzx_config cfg;
     jzx_allocator allocator;
@@ -111,7 +213,29 @@ struct jzx_loop {
     int running;
     int stop_requested;
 };
+```
 
+This is the runtime’s “world”:
+
+- Configuration and allocator: `cfg`, `allocator`.
+- Observability: `observer`, `observer_ctx`.
+- Scheduling: `actors` (table), `run_queue`.
+- I/O backend: `xev`.
+- Cross-thread async send queue:
+  - `async_mutex`, `async_head`, `async_tail`
+  - `async_mutex_initialized` is a safety flag for partial init failures.
+- Timer subsystem:
+  - `timer_mutex`, `timer_cond`, `timer_thread`, `timer_head`, `next_timer_id`
+  - `timer_cond_monotonic` tracks whether the condvar uses a monotonic clock (timeout correctness).
+  - `timer_stop` is the shutdown flag for the timer thread.
+- I/O watchers:
+  - `io_watchers` array holds fd registrations, `io_capacity`/`io_count` track sizing and usage.
+- Loop state: `running` and `stop_requested` implement cooperative stop semantics.
+
+## Async message nodes (cross-thread send queue)
+
+<!-- snippet: src/jzx_internal.h#L103-L110 -->
+```c title="struct jzx_async_msg" showLineNumbers=103
 struct jzx_async_msg {
     jzx_actor_id target;
     void* data;
@@ -120,7 +244,20 @@ struct jzx_async_msg {
     jzx_actor_id sender;
     struct jzx_async_msg* next;
 };
+```
 
+This is a singly-linked list node that holds a message payload for later delivery on the loop thread.
+
+Critical semantic note:
+
+- Payload is not copied; `data` must remain valid until the loop thread consumes it.
+
+TODO: Document the intended lifetime rules for async payloads (heap-owned? caller-owned?).
+
+## Timer nodes (sorted due list)
+
+<!-- snippet: src/jzx_internal.h#L112-L120 -->
+```c title="struct jzx_timer_entry" showLineNumbers=112
 struct jzx_timer_entry {
     jzx_timer_id id;
     jzx_actor_id target;
@@ -130,147 +267,31 @@ struct jzx_timer_entry {
     uint64_t due_ms;
     struct jzx_timer_entry* next;
 };
+```
 
+- `due_ms` is an absolute timestamp in monotonic milliseconds.
+- The list is typically maintained in due-time order for efficient “next deadline” waits.
+
+## I/O watch table entries (fd → owner + interest)
+
+<!-- snippet: src/jzx_internal.h#L122-L127 -->
+```c title="struct jzx_io_watch" showLineNumbers=122
 struct jzx_io_watch {
     int fd;
     jzx_actor_id owner;
     uint32_t interest;
     uint8_t active;
 };
-
-#endif
 ```
 
-## Line-by-line commentary
+- `fd`: watched file descriptor.
+- `owner`: actor that should receive readiness notifications.
+- `interest`: bitmask of read/write interest.
+- `active`: whether this entry is in use.
 
-| Line | What it is / why it exists |
-| ---: | --- |
-| 1 | Header guard start for this private header. |
-| 2 | Header guard define. |
-| 3 | Blank line to keep sections visually separated. |
-| 4 | Includes the public ABI so internal types match public declarations (`jzx_loop`, `jzx_message`, etc.). |
-| 5 | Blank line. |
-| 6 | Includes pthread primitives used by async send + timer thread. |
-| 7 | Includes `stddef.h` for `size_t` used in payload sizes and arrays. |
-| 8 | Includes `stdint.h` for `uint32_t/uint64_t/uint8_t` fields. |
-| 9 | Blank line. |
-| 10 | Forward-declare `jzx_async_msg` so the loop struct can refer to it without ordering constraints. |
-| 11 | Forward-declare `jzx_timer_entry` (timer list node). |
-| 12 | Forward-declare `jzx_io_watch` (fd watch table entry). |
-| 13 | Forward-declare `jzx_xev` (opaque state for the libxev integration). |
-| 14 | Blank line. |
-| 15 | `jzx_xev_create`: allocates/initializes the libxev backend state. |
-| 16 | `jzx_xev_destroy`: tears down the backend state (must stop watchers and free resources). |
-| 17 | `jzx_xev_wakeup`: wakes the event loop (used when cross-thread work is enqueued). |
-| 18 | `jzx_xev_run`: drives the backend loop for one “tick”/mode (implementation-defined). |
-| 19 | `jzx_xev_watch_fd`: register interest in fd readiness with the backend and associate with `loop`. |
-| 20 | `jzx_xev_unwatch_fd`: remove a previously registered fd watch from the backend. |
-| 21 | Blank line. |
-| 22 | `jzx_io_xev_notify`: callback used by the backend to notify the runtime that an fd is ready. |
-| 23 | Blank line. |
-| 24 | Starts `jzx_mailbox_impl`, the internal mailbox ring buffer representation. |
-| 25 | `buffer`: contiguous ring buffer storing `jzx_message` envelopes. |
-| 26 | `capacity`: total number of message slots allocated. |
-| 27 | `head`: index of the next message to pop. |
-| 28 | `tail`: index where the next push will write. |
-| 29 | `count`: current number of queued messages (distinguishes empty vs full). |
-| 30 | Closes mailbox implementation struct. |
-| 31 | Blank line. |
-| 32 | Starts `jzx_child_state`, the runtime-tracked state for one supervised child. |
-| 33 | `spec`: immutable template describing behavior/restart policy for the child. |
-| 34 | `id`: current actor id for the live child instance (0 when not running). |
-| 35 | `restart_count`: number of restarts attempted (used for intensity/backoff). |
-| 36 | `last_restart_ms`: last restart timestamp (used for backoff timing and intensity windows). |
-| 37 | Closes child state struct. |
-| 38 | Blank line. |
-| 39 | Starts `jzx_supervisor_state`, the runtime state for a supervisor’s child set. |
-| 40 | `config`: the supervisor config (strategy/intensity/backoff). |
-| 41 | `children`: heap array of `jzx_child_state` entries (one per configured child). |
-| 42 | `child_count`: number of children in the `children` array. |
-| 43 | `intensity_window_count`: restart attempts observed in the current window. |
-| 44 | `intensity_window_start_ms`: window start timestamp (0 means “not started yet”). |
-| 45 | Closes supervisor state struct. |
-| 46 | Blank line. |
-| 47 | Starts `jzx_actor`, the runtime’s internal representation of an actor. |
-| 48 | `id`: stable actor id for this live actor instance. |
-| 49 | `status`: lifecycle state (running/stopped/failed). |
-| 50 | `behavior`: message handler function pointer (C ABI behavior). |
-| 51 | `state`: user state pointer passed back via `jzx_context.state`. |
-| 52 | `supervisor`: supervisor id (0 means “no supervisor / root”). |
-| 53 | `supervisor_state`: non-null only for supervisor actors that manage children. |
-| 54 | `mailbox`: per-actor message queue implementation. |
-| 55 | `in_run_queue`: whether the actor is currently enqueued as runnable (avoid duplicates). |
-| 56 | Closes actor struct typedef. |
-| 57 | Blank line. |
-| 58 | Starts `jzx_actor_table`, a compact slot table used to map `jzx_actor_id` → `jzx_actor*`. |
-| 59 | `slots`: array of pointers indexed by actor slot index. |
-| 60 | `generations`: per-slot generation counters; combined with index to form `jzx_actor_id`. |
-| 61 | `free_stack`: LIFO stack of free slot indices (fast allocate/free). |
-| 62 | `capacity`: total size of `slots/generations/free_stack` arrays. |
-| 63 | `free_top`: stack pointer for `free_stack`. |
-| 64 | `used`: number of live actors in the table (helps enforce caps and debugging). |
-| 65 | Closes actor-table struct. |
-| 66 | Blank line. |
-| 67 | Starts `jzx_run_queue`, the scheduler’s queue of runnable actors. |
-| 68 | `entries`: ring buffer of `jzx_actor*` pointers. |
-| 69 | `capacity`: size of the ring buffer. |
-| 70 | `head`: index of next actor to run. |
-| 71 | `tail`: index where next enqueue will write. |
-| 72 | `count`: number of runnable actors queued. |
-| 73 | Closes run queue struct. |
-| 74 | Blank line. |
-| 75 | Starts the definition of the opaque `struct jzx_loop` (opaque publicly, concrete privately). |
-| 76 | `cfg`: a copy of user-provided config for later access. |
-| 77 | `allocator`: effective allocator (may be derived from cfg). |
-| 78 | `observer`: installed observer callback table (may contain null function pointers). |
-| 79 | `observer_ctx`: opaque user pointer passed to observer callbacks. |
-| 80 | `actors`: actor table (id → actor mapping). |
-| 81 | `run_queue`: scheduler run queue of runnable actors. |
-| 82 | `xev`: pointer to the libxev integration state. |
-| 83 | `async_mutex`: guards the cross-thread async message list. |
-| 84 | `async_mutex_initialized`: tracks whether the mutex was successfully initialized. |
-| 85 | `async_head`: head of the async message singly-linked list. |
-| 86 | `async_tail`: tail pointer to append in O(1). |
-| 87 | `timer_mutex`: guards the timer list and timer thread coordination. |
-| 88 | `timer_cond`: condition variable for waking the timer thread when timers change. |
-| 89 | `timer_mutex_initialized`: tracks whether the timer mutex is initialized. |
-| 90 | `timer_cond_monotonic`: whether the condvar uses a monotonic clock (timeout correctness). |
-| 91 | `timer_thread_running`: indicates the timer thread is alive/running. |
-| 92 | `timer_thread`: pthread handle for the timer thread. |
-| 93 | `timer_stop`: stop flag checked by the timer thread. |
-| 94 | `timer_head`: head of the sorted timer list. |
-| 95 | `next_timer_id`: monotonically increasing id generator for timers. |
-| 96 | `io_watchers`: array of watch entries (fd → owner/interest). |
-| 97 | `io_capacity`: size of `io_watchers` array. |
-| 98 | `io_count`: number of active io watchers. |
-| 99 | `running`: loop is currently running (used for reentrancy/stop semantics). |
-| 100 | `stop_requested`: cooperative stop flag checked by the run loop. |
-| 101 | Closes `struct jzx_loop`. |
-| 102 | Blank line. |
-| 103 | Starts `struct jzx_async_msg`, node type for cross-thread “send_async” enqueues. |
-| 104 | `target`: actor id the message will be delivered to. |
-| 105 | `data`: raw payload pointer (not copied). |
-| 106 | `len`: payload byte length. |
-| 107 | `tag`: message tag. |
-| 108 | `sender`: sender actor id (often 0 for cross-thread sends). |
-| 109 | `next`: linked-list pointer for queueing. |
-| 110 | Closes async-msg node struct. |
-| 111 | Blank line. |
-| 112 | Starts `struct jzx_timer_entry`, node type for the timer linked list. |
-| 113 | `id`: timer id returned to callers. |
-| 114 | `target`: actor id that will receive the message when timer fires. |
-| 115 | `data`: raw payload pointer (lifetime requirements apply; not copied). |
-| 116 | `len`: payload byte length. |
-| 117 | `tag`: message tag delivered when timer fires. |
-| 118 | `due_ms`: absolute due time in monotonic milliseconds. |
-| 119 | `next`: linked-list pointer. |
-| 120 | Closes timer-entry node struct. |
-| 121 | Blank line. |
-| 122 | Starts `struct jzx_io_watch`, the runtime’s record for an fd watch. |
-| 123 | `fd`: watched file descriptor. |
-| 124 | `owner`: actor that will receive readiness notifications. |
-| 125 | `interest`: bitmask of `JZX_IO_READ`/`JZX_IO_WRITE`. |
-| 126 | `active`: whether this watch entry is currently in use. |
-| 127 | Closes io-watch struct. |
-| 128 | Blank line. |
-| 129 | Header guard end. |
+## Footer (end include guard)
+
+<!-- snippet: src/jzx_internal.h#L129-L129 -->
+```c title="End of header guard" showLineNumbers=129
+#endif
+```

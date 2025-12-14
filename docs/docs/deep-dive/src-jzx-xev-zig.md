@@ -7,25 +7,15 @@ sidebar_position: 5
 
 This file is the bridge between:
 
-- the **C runtime** (which wants “watch fd X for read/write, then deliver a message”), and
-- the **libxev event loop** (which wants “arm completions and rearm/disarm them based on callbacks”).
+- the **C runtime** (which wants “watch fd X and deliver messages”), and
+- the **xev event loop** (which wants “arm completions, then rearm/disarm via callbacks”).
 
-The C runtime calls these exported functions (declared in `src/jzx_internal.h`):
+This page uses a textbook-style format: short snippets with explanation immediately around them.
 
-- `jzx_xev_create`
-- `jzx_xev_destroy`
-- `jzx_xev_wakeup`
-- `jzx_xev_run`
-- `jzx_xev_watch_fd`
-- `jzx_xev_unwatch_fd`
+## Imports, ABI wiring, and core aliases
 
-And libxev callbacks call back into C via:
-
-- `extern fn jzx_io_xev_notify(...) u8`
-
-## Full source (with line numbers)
-
-```zig title="src/jzx_xev.zig" showLineNumbers
+<!-- snippet: src/jzx_xev.zig#L1-L13 -->
+```zig title="Imports, C ABI import, and core aliases" showLineNumbers=1
 const std = @import("std");
 const xev = @import("xev");
 const Xev = xev.Dynamic;
@@ -39,7 +29,22 @@ extern fn jzx_io_xev_notify(loop: *c.jzx_loop, fd: c_int, readiness: u32) u8;
 const Loop = Xev.Loop;
 const Async = Xev.Async;
 const Completion = Xev.Completion;
+```
 
+What each line is doing:
+
+- `std`: used for allocator and platform constants (`std.posix`, `std.os.linux`).
+- `xev` + `Xev = xev.Dynamic`: selects xev’s dynamic backend wrapper so this code can support multiple polling backends.
+- `c = @cImport(...)`: imports the public C ABI types and constants (`JZX_IO_READ`, `jzx_loop`, etc).
+- `extern fn jzx_io_xev_notify(...) u8`: declares a C function implemented by the runtime that xev callbacks call to deliver readiness.
+- `Loop`, `Async`, `Completion`: aliases that shorten xev types used throughout the file.
+
+Why it exists: the runtime owns scheduling and message delivery, but it needs a backend to translate OS readiness events into “enqueue a message”.
+
+## The per-fd watch object (`Watch`)
+
+<!-- snippet: src/jzx_xev.zig#L15-L25 -->
+```zig title="Watch: one fd + xev completions" showLineNumbers=15
 const Watch = struct {
     loop: *c.jzx_loop,
     fd: c_int,
@@ -51,7 +56,23 @@ const Watch = struct {
     write: Completion = .{},
     write_cancel: Completion = .{},
 };
+```
 
+`Watch` represents a single fd registration.
+
+- `loop`: pointer back to the owning `jzx_loop` so callbacks know where to deliver.
+- `fd`: watched file descriptor.
+- `interest`: bitmask (`JZX_IO_READ` / `JZX_IO_WRITE`).
+- `removed`: a “logical delete” flag; the watch is freed only when it is safe to do so.
+- `read` / `write`: the active xev completions for readiness.
+- `read_cancel` / `write_cancel`: cancellation completions used to disarm watches without races.
+
+Why the `*_cancel` completions exist: xev completion objects have a lifecycle; cancelling an active completion is itself an operation that must be tracked until complete.
+
+## Backend state stored inside the C loop (`XevState`)
+
+<!-- snippet: src/jzx_xev.zig#L27-L45 -->
+```zig title="XevState: backend-owned state" showLineNumbers=27
 pub const XevState = struct {
     loop: Loop,
     wake: Async,
@@ -71,7 +92,22 @@ pub const XevState = struct {
         self.* = undefined;
     }
 };
+```
 
+`XevState` is allocated by `jzx_xev_create()` and stored in the C loop as an opaque pointer.
+
+- `loop`: the xev loop instance.
+- `wake`: an async handle used to wake a blocking wait.
+- `watches`: an array of pointers to `Watch` objects.
+- `deinit`: tears down the backend:
+  - deinitializes wake + loop
+  - destroys all allocated watches
+  - poisons `self` to catch use-after-free
+
+## Backend capability check (`supportsPollOps`)
+
+<!-- snippet: src/jzx_xev.zig#func=supportsPollOps -->
+```zig title="supportsPollOps()" showLineNumbers=47
 fn supportsPollOps() bool {
     if (comptime Xev.dynamic) {
         return true;
@@ -82,14 +118,33 @@ fn supportsPollOps() bool {
         else => false,
     };
 }
+```
 
+This function answers: “can the chosen xev backend support the polling operations we need?”
+
+- If `Xev.dynamic` is enabled, it returns true because the backend is selected from candidates that support the superset interface.
+- Otherwise it whitelists backends known to support poll/read/write operations.
+
+Why it exists: if the backend can’t watch fds, the runtime’s I/O API must fail gracefully.
+
+## Finding and creating watches (`findWatchIndex` and `ensureWatch`)
+
+<!-- snippet: src/jzx_xev.zig#func=findWatchIndex -->
+```zig title="findWatchIndex()" showLineNumbers=58
 fn findWatchIndex(state: *XevState, fd: c_int) ?usize {
     for (state.watches.items, 0..) |watch, idx| {
         if (watch.fd == fd) return idx;
     }
     return null;
 }
+```
 
+This is a linear search over `state.watches` by fd.
+
+TODO: If watch counts grow large, consider a hashmap (fd → index) to avoid O(n) scans.
+
+<!-- snippet: src/jzx_xev.zig#func=ensureWatch -->
+```zig title="ensureWatch()" showLineNumbers=65
 fn ensureWatch(state: *XevState, loop: *c.jzx_loop, fd: c_int) !*Watch {
     if (findWatchIndex(state, fd)) |idx| {
         const watch = state.watches.items[idx];
@@ -107,7 +162,19 @@ fn ensureWatch(state: *XevState, loop: *c.jzx_loop, fd: c_int) !*Watch {
     try state.watches.append(allocator, watch);
     return watch;
 }
+```
 
+This function ensures there is a `Watch` for an fd:
+
+- If one exists, it updates `watch.loop` (important if the same fd is reused for a different loop).
+- Otherwise it allocates a new `Watch`, initializes it with zero interest, and appends it to the list.
+
+Why it exists: it centralizes the “lookup or create” logic so `watch_fd` stays small.
+
+## Cancelling active completions (`cancelIfNeeded`)
+
+<!-- snippet: src/jzx_xev.zig#func=cancelIfNeeded -->
+```zig title="cancelIfNeeded()" showLineNumbers=83
 fn cancelIfNeeded(state: *XevState, target: *Completion, cancel: *Completion) void {
     if (target.state() == .dead) return;
     if (cancel.state() != .dead) return;
@@ -146,11 +213,30 @@ fn cancelIfNeeded(state: *XevState, target: *Completion, cancel: *Completion) vo
     };
     state.loop.add(cancel);
 }
+```
 
+This function is subtle and critical:
+
+- If the completion is already `.dead`, there’s nothing to cancel.
+- If a cancel operation is already armed, don’t arm another cancel.
+- The dynamic-backend path constructs a backend-specific cancel op.
+- The static-backend path uses xev’s generic cancel op.
+
+Why it exists: cancelling an in-flight completion is the safe way to stop watching an fd without freeing data structures too early.
+
+<!-- snippet: src/jzx_xev.zig#func=cancelCallback -->
+```zig title="cancelCallback()" showLineNumbers=122
 fn cancelCallback(_: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     return .disarm;
 }
+```
 
+The cancel callback always returns `.disarm`, which tells xev not to rearm the cancellation completion.
+
+## Readiness callbacks (delivering events back into C)
+
+<!-- snippet: src/jzx_xev.zig#func=readCallback -->
+```zig title="readCallback()" showLineNumbers=126
 fn readCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     const watch = @as(*Watch, @ptrCast(@alignCast(ud.?)));
     if (watch.removed or (watch.interest & c.JZX_IO_READ) == 0) {
@@ -159,7 +245,17 @@ fn readCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.Ca
     const ok = jzx_io_xev_notify(watch.loop, watch.fd, c.JZX_IO_READ) != 0;
     return if (ok) .rearm else .disarm;
 }
+```
 
+- Reinterprets `userdata` as `*Watch`.
+- If the watch is removed or no longer interested in reads, disarm.
+- Otherwise call `jzx_io_xev_notify(loop, fd, JZX_IO_READ)`.
+- If C returns “ok”, rearm; otherwise disarm.
+
+The return value from `jzx_io_xev_notify` is the runtime’s way to say: “keep watching” vs “stop watching”.
+
+<!-- snippet: src/jzx_xev.zig#func=writeCallback -->
+```zig title="writeCallback()" showLineNumbers=135
 fn writeCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     const watch = @as(*Watch, @ptrCast(@alignCast(ud.?)));
     if (watch.removed or (watch.interest & c.JZX_IO_WRITE) == 0) {
@@ -168,7 +264,14 @@ fn writeCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.C
     const ok = jzx_io_xev_notify(watch.loop, watch.fd, c.JZX_IO_WRITE) != 0;
     return if (ok) .rearm else .disarm;
 }
+```
 
+Same logic as `readCallback`, but for `JZX_IO_WRITE`.
+
+## Arming read/write operations (`armRead` / `armWrite`)
+
+<!-- snippet: src/jzx_xev.zig#func=armRead -->
+```zig title="armRead()" showLineNumbers=144
 fn armRead(state: *XevState, watch: *Watch) void {
     if (!supportsPollOps()) return;
     if (watch.read.state() != .dead) return;
@@ -221,7 +324,16 @@ fn armRead(state: *XevState, watch: *Watch) void {
     };
     state.loop.add(&watch.read);
 }
+```
 
+This function arms a completion for “readable” readiness.
+
+- It short-circuits if poll ops aren’t supported or if a read op is already armed.
+- The dynamic backend path constructs backend-specific poll ops and callback glue.
+- The non-dynamic path uses the statically selected backend and attaches `readCallback`.
+
+<!-- snippet: src/jzx_xev.zig#func=armWrite -->
+```zig title="armWrite()" showLineNumbers=197
 fn armWrite(state: *XevState, watch: *Watch) void {
     if (!supportsPollOps()) return;
     if (watch.write.state() != .dead) return;
@@ -274,7 +386,16 @@ fn armWrite(state: *XevState, watch: *Watch) void {
     };
     state.loop.add(&watch.write);
 }
+```
 
+Same logic as `armRead`, but arms “writable” readiness.
+
+Why the dynamic path is more verbose: xev’s dynamic superset requires constructing backend-tagged completion values at compile time.
+
+## Keeping watch state consistent (`syncWatch`, `sweep`)
+
+<!-- snippet: src/jzx_xev.zig#func=syncWatch -->
+```zig title="syncWatch()" showLineNumbers=250
 fn syncWatch(state: *XevState, watch: *Watch) void {
     if (watch.removed) {
         watch.interest = 0;
@@ -292,12 +413,26 @@ fn syncWatch(state: *XevState, watch: *Watch) void {
         cancelIfNeeded(state, &watch.write, &watch.write_cancel);
     }
 }
+```
 
+This function reconciles “desired interest” with “armed completions”:
+
+- If a watch is `removed`, force `interest = 0`.
+- If interested in read/write, ensure the corresponding completion is armed.
+- If not interested, cancel any armed completion.
+
+<!-- snippet: src/jzx_xev.zig#func=watchReadyToFree -->
+```zig title="watchReadyToFree()" showLineNumbers=268
 fn watchReadyToFree(watch: *Watch) bool {
     return watch.read.state() == .dead and watch.write.state() == .dead and
         watch.read_cancel.state() == .dead and watch.write_cancel.state() == .dead;
 }
+```
 
+A watch can be freed only when all four completions (read/write and their cancels) are dead.
+
+<!-- snippet: src/jzx_xev.zig#func=sweep -->
+```zig title="sweep()" showLineNumbers=273
 fn sweep(state: *XevState) void {
     var i: usize = 0;
     while (i < state.watches.items.len) {
@@ -316,12 +451,35 @@ fn sweep(state: *XevState) void {
         i += 1;
     }
 }
+```
 
+`sweep`:
+
+- calls `syncWatch` for every watch, and
+- destroys watches that are both:
+  - marked `removed`, and
+  - “ready to free”
+
+It removes freed watches by swapping with the last element (O(1) removal, order not preserved).
+
+## Wake callback
+
+<!-- snippet: src/jzx_xev.zig#func=wakeCallback -->
+```zig title="wakeCallback()" showLineNumbers=292
 fn wakeCallback(_: ?*void, _: *Loop, _: *Completion, result: Async.WaitError!void) Xev.CallbackAction {
     _ = result catch return .disarm;
     return .rearm;
 }
+```
 
+The wake callback rearms itself on success so the async wake handle continues to work for the lifetime of the loop.
+
+## Exported functions (C runtime calls these)
+
+### Create backend state
+
+<!-- snippet: src/jzx_xev.zig#func=jzx_xev_create -->
+```zig title="jzx_xev_create()" showLineNumbers=297
 pub export fn jzx_xev_create() ?*XevState {
     if (!supportsPollOps()) {
         return null;
@@ -356,19 +514,45 @@ pub export fn jzx_xev_create() ?*XevState {
     state.wake.wait(&state.loop, &state.wake_completion, void, null, wakeCallback);
     return state;
 }
+```
 
+Highlights:
+
+- returns null when poll operations aren’t supported.
+- allocates `XevState` with the C allocator.
+- selects an xev backend (dynamic: chooses preferred candidate; static: uses `Xev.backend`).
+- initializes the wake async handle and arms `wait` with `wakeCallback`.
+
+### Destroy backend state
+
+<!-- snippet: src/jzx_xev.zig#func=jzx_xev_destroy -->
+```zig title="jzx_xev_destroy()" showLineNumbers=332
 pub export fn jzx_xev_destroy(state: *XevState) void {
     if (@intFromPtr(state) == 0) return;
 
     state.deinit();
     std.heap.c_allocator.destroy(state);
 }
+```
 
+This frees all backend-owned resources.
+
+### Wake a blocked loop
+
+<!-- snippet: src/jzx_xev.zig#func=jzx_xev_wakeup -->
+```zig title="jzx_xev_wakeup()" showLineNumbers=339
 pub export fn jzx_xev_wakeup(state: *XevState) void {
     if (@intFromPtr(state) == 0) return;
     state.wake.notify() catch {};
 }
+```
 
+Used by the C runtime after it enqueues cross-thread work so a blocking wait will return promptly.
+
+### Run one step of the backend loop
+
+<!-- snippet: src/jzx_xev.zig#func=jzx_xev_run -->
+```zig title="jzx_xev_run()" showLineNumbers=344
 pub export fn jzx_xev_run(state: *XevState, mode: c_int) void {
     if (@intFromPtr(state) == 0) return;
     const run_mode: Xev.RunMode = switch (mode) {
@@ -379,7 +563,19 @@ pub export fn jzx_xev_run(state: *XevState, mode: c_int) void {
     _ = state.loop.run(run_mode) catch {};
     sweep(state);
 }
+```
 
+The `mode` integer is mapped into an xev `RunMode`:
+
+- `0` → `.no_wait`
+- `1` → `.once`
+
+Then `sweep` runs to reconcile interests, cancellations, and frees.
+
+### Watch an fd
+
+<!-- snippet: src/jzx_xev.zig#func=jzx_xev_watch_fd -->
+```zig title="jzx_xev_watch_fd()" showLineNumbers=355
 pub export fn jzx_xev_watch_fd(state: *XevState, loop: *c.jzx_loop, fd: c_int, interest: u32) c_int {
     if (@intFromPtr(state) == 0 or @intFromPtr(loop) == 0 or fd < 0 or interest == 0) {
         return c.JZX_ERR_INVALID_ARG;
@@ -390,7 +586,19 @@ pub export fn jzx_xev_watch_fd(state: *XevState, loop: *c.jzx_loop, fd: c_int, i
     syncWatch(state, watch);
     return c.JZX_OK;
 }
+```
 
+Contract enforcement:
+
+- null state/loop, negative fd, or zero interest → `JZX_ERR_INVALID_ARG`.
+- out-of-memory allocating a watch → `JZX_ERR_NO_MEMORY`.
+
+Then it updates interest and syncs the watch immediately.
+
+### Unwatch an fd
+
+<!-- snippet: src/jzx_xev.zig#func=jzx_xev_unwatch_fd -->
+```zig title="jzx_xev_unwatch_fd()" showLineNumbers=366
 pub export fn jzx_xev_unwatch_fd(state: *XevState, fd: c_int) void {
     if (@intFromPtr(state) == 0 or fd < 0) return;
     const idx = findWatchIndex(state, fd) orelse return;
@@ -400,65 +608,4 @@ pub export fn jzx_xev_unwatch_fd(state: *XevState, fd: c_int) void {
 }
 ```
 
-## Mental model (high signal)
-
-### Core responsibilities
-
-- Maintain a list of active watches (`XevState.watches`) where each watch is tied to:
-  - an `fd`
-  - an owning `jzx_actor_id` (stored on the C side; this file stores `loop` pointer + `fd`)
-  - an interest mask (`JZX_IO_READ`/`JZX_IO_WRITE`)
-- Translate interest masks into xev operations:
-  - poll/read for readability
-  - poll/write for writability
-- On readiness:
-  - call `jzx_io_xev_notify(loop, fd, readiness_bit)` to let the C runtime enqueue a system I/O message
-  - rearm if the runtime says “keep watching”
-
-### Key types
-
-- `Watch`: one fd + completions
-  - `read` / `write`: the active xev completion for polling readiness
-  - `read_cancel` / `write_cancel`: cancellation completions used to disarm active watches
-  - `removed`: “logical delete” flag; the sweep phase will actually free once safe
-- `XevState`: the backend state stored in the C runtime as an opaque pointer
-  - `loop`: the xev event loop instance
-  - `wake`: an async handle used to wake up blocking runs
-
-### Lifecycle rules
-
-- A watch is only freed when:
-  - it’s marked `removed`, and
-  - all associated completions are in the `.dead` state (`watchReadyToFree`)
-- This prevents freeing a `Watch` while a completion might still reference it via `userdata`.
-
-## Exported functions (what they mean and why they exist)
-
-- `jzx_xev_create` (starts at line 297)
-- `jzx_xev_create`
-  - Creates an `XevState`, chooses a supported backend, and arms an async “wake” completion so `jzx_xev_wakeup` works.
-  - Returns null when no backend supports the operations this integration needs.
-- `jzx_xev_destroy` (starts at line 332)
-- `jzx_xev_destroy`
-  - Deinitializes xev resources, destroys watches, and frees the state allocation.
-- `jzx_xev_wakeup` (starts at line 339)
-- `jzx_xev_wakeup`
-  - Notifies the async handle to wake a blocking loop run (used after cross-thread enqueue).
-- `jzx_xev_run` (starts at line 344)
-- `jzx_xev_run`
-  - Runs the xev loop in a mode selected by `mode` and then calls `sweep` to sync interest/cancellations and free removed watches.
-- `jzx_xev_watch_fd` (starts at line 355)
-- `jzx_xev_watch_fd`
-  - Validates inputs, creates or reuses a `Watch`, sets interest, and arms/cancels completions accordingly.
-- `jzx_xev_unwatch_fd` (starts at line 366)
-- `jzx_xev_unwatch_fd`
-  - Marks the watch as removed and syncs it (which triggers cancellation); actual free happens during sweep.
-
-## Key helpers (where to look)
-
-- Backend selection: `supportsPollOps` (line 47)
-- Watch lookup/creation: `findWatchIndex` (line 58), `ensureWatch` (line 65)
-- Cancellation mechanics: `cancelIfNeeded` (line 83)
-- Readiness callbacks: `readCallback` (line 126), `writeCallback` (line 135)
-- Arming poll operations: `armRead` (line 144), `armWrite` (line 197)
-- Keeping watch state consistent: `syncWatch` (line 250), `sweep` (line 273)
+Marks the watch removed and syncs it; actual free happens in `sweep` when it is safe.
