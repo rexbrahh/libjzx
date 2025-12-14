@@ -43,20 +43,20 @@
 
 /* For readability concerns, you should choose a lighter palette in dark mode. */
 [data-theme='dark'] {
-  --ifm-color-primary: #58a6ff;
-  --ifm-color-primary-dark: #388bfd;
-  --ifm-color-primary-darker: #1f6feb;
-  --ifm-color-primary-darkest: #1158c7;
-  --ifm-color-primary-light: #79c0ff;
-  --ifm-color-primary-lighter: #a5d6ff;
-  --ifm-color-primary-lightest: #c9e8ff;
+  --ifm-color-primary: #85befd;
+  --ifm-color-primary-dark: #5da9fc;
+  --ifm-color-primary-darker: #3a96fc;
+  --ifm-color-primary-darkest: #087bfb;
+  --ifm-color-primary-light: #add3fe;
+  --ifm-color-primary-lighter: #d0e6fe;
+  --ifm-color-primary-lightest: #e9f3ff;
 
   --ifm-background-color: #1b1b1d;
   --ifm-background-surface-color: #1b1b1d;
   --ifm-font-color-base: #c9d1d9;
   --ifm-heading-color: #c9d1d9;
-  --ifm-link-color: #58a6ff;
-  --ifm-link-hover-color: #79c0ff;
+  --ifm-link-color: #85befd;
+  --ifm-link-hover-color: #add3fe;
 
   --ifm-table-border-color: #30363d;
   --ifm-toc-border-color: #30363d;
@@ -65,7 +65,7 @@
   --ifm-navbar-shadow: 0 1px 0 rgba(48, 54, 61, 1);
   --ifm-footer-background-color: #1b1b1d;
 
-  --docusaurus-highlighted-code-line-bg: rgba(88, 166, 255, 0.18);
+  --docusaurus-highlighted-code-line-bg: rgba(133, 190, 253, 0.18);
 
   --jzx-surface-1: #1b1b1d;
   --jzx-border: #30363d;
