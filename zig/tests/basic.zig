@@ -88,6 +88,56 @@ test "actor receives and processes a message" {
     try std.testing.expectEqual(c.JZX_ERR_NO_SUCH_ACTOR, c.jzx_send(loop.ptr, actor_id, &payload, @sizeOf(u32), 1));
 }
 
+test "actor id generations reject stale ids after slot reuse" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state_a: u32 = 0;
+    var opts_a = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state_a,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var actor_a: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts_a, &actor_a));
+
+    var payload: u32 = 1;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, actor_a, &payload, @sizeOf(u32), 0));
+    try loop.run();
+
+    try std.testing.expectEqual(@as(u32, 1), state_a);
+
+    var state_b: u32 = 0;
+    var opts_b = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state_b,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var actor_b: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts_b, &actor_b));
+    try std.testing.expect(actor_b != actor_a);
+
+    const raw_a: u64 = @intCast(actor_a);
+    const raw_b: u64 = @intCast(actor_b);
+    const idx_a: u32 = @truncate(raw_a);
+    const idx_b: u32 = @truncate(raw_b);
+    const gen_a: u32 = @intCast(raw_a >> 32);
+    const gen_b: u32 = @intCast(raw_b >> 32);
+    try std.testing.expectEqual(idx_a, idx_b);
+    try std.testing.expectEqual(gen_a + 1, gen_b);
+
+    try std.testing.expectEqual(c.JZX_ERR_NO_SUCH_ACTOR, c.jzx_send(loop.ptr, actor_a, &payload, @sizeOf(u32), 0));
+
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, actor_b, &payload, @sizeOf(u32), 0));
+    try loop.run();
+
+    try std.testing.expectEqual(@as(u32, 1), state_b);
+}
+
 test "mailbox full returns error" {
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
