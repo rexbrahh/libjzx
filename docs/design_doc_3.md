@@ -154,6 +154,28 @@ static void jzx_drain_async_queue(jzx_loop* loop) {
 
 So the core logic stays single threaded; only the async envelope queue is shared.
 
+#### 2.2.1 Implementation notes (current)
+
+The v1 runtime currently implements the envelope queue as:
+
+- A mutex-protected FIFO linked list (`jzx_async_msg`).
+- A wakeup fd (non-blocking `pipe(2)`) that `jzx_send_async` writes to after enqueue so the loop can break out of a blocking poll.
+
+The scheduler drains async messages by detaching the whole list under the mutex and then dispatching without holding the lock. This keeps the loop thread single-threaded while allowing foreign threads to enqueue.
+
+Semantics to document:
+
+- **Thread safety:** `jzx_send_async` is safe from any thread. Other `jzx_*` APIs are loop-thread-only.
+- **Ordering:** envelopes are dispatched FIFO in the order they were enqueued to the async queue. Within a target actor mailbox, messages are FIFO by successful enqueue time.
+- **Delivery:** `jzx_send_async` cannot validate `target` from foreign threads; delivery is best-effort and may be dropped if the actor is gone or its mailbox is full at drain time.
+- **Payload lifetime:** the payload pointer is not copied. The sender must ensure `data` remains valid until the receiver consumes it; ownership conventions are defined by the application protocol (v1 has no drop/destructor hook).
+
+Performance notes:
+
+- Each `jzx_send_async` call allocates one envelope node and takes a mutex, so high cross-thread message volume can bottleneck on allocation and lock contention.
+- Drain detaches in one lock/unlock, providing batching on the consumer side.
+- Future work: lock-free MPSC/MPMC ring buffer, configurable max drain per tick, and multi-loop routing.
+
 ### 2.3 Rules to document
 
 - `jzx_send` is only valid on loop thread.

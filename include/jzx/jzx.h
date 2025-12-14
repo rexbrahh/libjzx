@@ -173,6 +173,8 @@ void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx);
 
 jzx_err jzx_send(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag);
 
+// Thread-safe enqueue for cross-thread sends. Payload is not copied.
+// Returns JZX_OK once queued; delivery is best-effort and not reported back to the caller.
 jzx_err jzx_send_async(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag);
 
 jzx_err jzx_actor_stop(jzx_loop* loop, jzx_actor_id id);

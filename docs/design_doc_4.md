@@ -50,11 +50,16 @@ typedef enum {
   - `JZX_ERR_NO_MEMORY` if alloc fails.
   - `JZX_ERR_INVALID_ARG` if behavior is NULL.
 
-- `jzx_send` / `jzx_send_async`
+- `jzx_send` (loop-thread-only)
 
-  - `JZX_ERR_LOOP_CLOSED` if loop is not running.
   - `JZX_ERR_NO_SUCH_ACTOR` if id not found or generation mismatch.
   - `JZX_ERR_MAILBOX_FULL` if mailbox cannot accept the message.
+
+- `jzx_send_async` (thread-safe)
+
+  - `JZX_ERR_INVALID_ARG` if `loop` is NULL (or async subsystem not initialized).
+  - `JZX_ERR_NO_MEMORY` if allocating the async envelope fails.
+  - Returns `JZX_OK` once enqueued; delivery is best-effort and is not reported back to the caller (the target may disappear or fill its mailbox before the loop drains the async queue).
 
 - `jzx_actor_stop` / `jzx_actor_fail`
 

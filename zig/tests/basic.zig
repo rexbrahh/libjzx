@@ -153,6 +153,33 @@ fn async_sender(args: AsyncArgs) void {
     _ = c.jzx_send_async(args.loop, args.actor, args.payload, @sizeOf(u32), 2);
 }
 
+const SeqState = struct {
+    expected: u32,
+    remaining: u32,
+    ok: bool = true,
+};
+
+fn seq_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const msg_ptr = @as(*const c.jzx_message, @ptrCast(msg));
+    const state = @as(*SeqState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+    if (state.remaining == 0) {
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    if (msg_ptr.data == null) {
+        state.ok = false;
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    const value_ptr: *const u32 = @ptrCast(@alignCast(msg_ptr.data.?));
+    if (value_ptr.* != state.expected) {
+        state.ok = false;
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    state.expected += 1;
+    state.remaining -= 1;
+    return if (state.remaining == 0) c.JZX_BEHAVIOR_STOP else c.JZX_BEHAVIOR_OK;
+}
+
 test "async send dispatches message" {
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
@@ -216,6 +243,52 @@ test "async send wakes blocking loop" {
     const end_ms = @as(u64, @intCast(std.time.milliTimestamp()));
     try std.testing.expect(end_ms - start_ms < 1000);
     try std.testing.expectEqual(@as(u32, 9), state);
+}
+
+test "async send preserves FIFO ordering" {
+    const n: u32 = 512;
+
+    var cfg: c.jzx_config = undefined;
+    c.jzx_config_init(&cfg);
+    cfg.io_poll_timeout_ms = 5000;
+
+    var loop = try jzx.Loop.create(cfg);
+    defer loop.deinit();
+
+    var state = SeqState{ .expected = 0, .remaining = n };
+    var opts = c.jzx_spawn_opts{
+        .behavior = seq_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 1024,
+        .name = null,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var runner = try std.Thread.spawn(.{}, struct {
+        fn run(lp: *jzx.Loop) void {
+            _ = lp.run() catch {};
+        }
+    }.run, .{&loop});
+
+    std.Thread.sleep(5 * std.time.ns_per_ms);
+
+    var payloads = [_]u32{0} ** n;
+    var sender = try std.Thread.spawn(.{}, struct {
+        fn run(lp: *c.jzx_loop, id: c.jzx_actor_id, data: []u32) void {
+            for (data, 0..) |*item, idx| {
+                item.* = @as(u32, @intCast(idx));
+                _ = c.jzx_send_async(lp, id, item, @sizeOf(u32), 0);
+            }
+        }
+    }.run, .{ loop.ptr, actor_id, payloads[0..] });
+
+    sender.join();
+    runner.join();
+
+    try std.testing.expect(state.ok);
+    try std.testing.expectEqual(@as(u32, 0), state.remaining);
 }
 
 test "timer delivers message" {
