@@ -735,15 +735,27 @@ static void* jzx_timer_thread_main(void* arg) {
         }
         if (head->due_ms > now) {
             uint64_t wait_ms = head->due_ms - now;
+#if defined(__APPLE__)
+            struct timespec rel;
+            rel.tv_sec = (time_t)(wait_ms / 1000ull);
+            rel.tv_nsec = (long)((wait_ms % 1000ull) * 1000000ull);
+            (void)pthread_cond_timedwait_relative_np(&loop->timer_cond, &loop->timer_mutex, &rel);
+#else
             struct timespec ts;
+#if defined(__linux__)
+            clockid_t clock_id = loop->timer_cond_monotonic ? CLOCK_MONOTONIC : CLOCK_REALTIME;
+            clock_gettime(clock_id, &ts);
+#else
             clock_gettime(CLOCK_REALTIME, &ts);
-            ts.tv_sec += wait_ms / 1000ull;
-            ts.tv_nsec += (wait_ms % 1000ull) * 1000000ull;
-            if (ts.tv_nsec >= 1000000000ull) {
+#endif
+            ts.tv_sec += (time_t)(wait_ms / 1000ull);
+            ts.tv_nsec += (long)((wait_ms % 1000ull) * 1000000ull);
+            if (ts.tv_nsec >= 1000000000l) {
                 ts.tv_sec += 1;
-                ts.tv_nsec -= 1000000000ull;
+                ts.tv_nsec -= 1000000000l;
             }
-            pthread_cond_timedwait(&loop->timer_cond, &loop->timer_mutex, &ts);
+            (void)pthread_cond_timedwait(&loop->timer_cond, &loop->timer_mutex, &ts);
+#endif
             continue;
         }
         loop->timer_head = head->next;
@@ -760,10 +772,30 @@ static jzx_err jzx_timer_system_init(jzx_loop* loop) {
     if (pthread_mutex_init(&loop->timer_mutex, NULL) != 0) {
         return JZX_ERR_UNKNOWN;
     }
+    loop->timer_cond_monotonic = 0;
+#if defined(__linux__)
+    pthread_condattr_t attr;
+    pthread_condattr_t* attr_ptr = NULL;
+    if (pthread_condattr_init(&attr) == 0) {
+        attr_ptr = &attr;
+        if (pthread_condattr_setclock(&attr, CLOCK_MONOTONIC) == 0) {
+            loop->timer_cond_monotonic = 1;
+        }
+    }
+    int cond_rc = pthread_cond_init(&loop->timer_cond, attr_ptr);
+    if (attr_ptr) {
+        pthread_condattr_destroy(&attr);
+    }
+    if (cond_rc != 0) {
+        pthread_mutex_destroy(&loop->timer_mutex);
+        return JZX_ERR_UNKNOWN;
+    }
+#else
     if (pthread_cond_init(&loop->timer_cond, NULL) != 0) {
         pthread_mutex_destroy(&loop->timer_mutex);
         return JZX_ERR_UNKNOWN;
     }
+#endif
     loop->timer_mutex_initialized = 1;
     loop->timer_thread_running = 0;
     loop->timer_stop = 0;

@@ -87,6 +87,7 @@ struct jzx_loop {
     pthread_mutex_t timer_mutex;
     pthread_cond_t timer_cond;
     uint8_t timer_mutex_initialized;
+    uint8_t timer_cond_monotonic;
     uint8_t timer_thread_running;
     pthread_t timer_thread;
     uint8_t timer_stop;
