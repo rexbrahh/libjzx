@@ -3,7 +3,7 @@ import type {PrismTheme} from 'prism-react-renderer';
 const prismTheme: PrismTheme = {
   plain: {
     color: '#c2c6cc',
-    backgroundColor: '#1b1b1d',
+    backgroundColor: '#0b0b0b',
   },
   styles: [
     {
