@@ -185,18 +185,69 @@
 }
 
 .navbar__search-input {
-  width: 20rem;
+  width: 24rem;
+  padding: 0 3.5rem 0 1.25rem;
 }
 
 @media (max-width: 996px) {
   .navbar__search-input {
-    width: 14rem;
+    width: 16rem;
   }
 }
 
 @media (max-width: 576px) {
   .navbar__search-input {
     width: 11rem;
+  }
+}
+
+.navbar__search-input:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/*
+ * Search modal behavior (Starlight-style):
+ * When the search input is focused (via click or Cmd+K), the whole search UI
+ * becomes a centered "palette" with a dimmed backdrop.
+ */
+.navbar__search[class*='focused'] {
+  position: fixed !important;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 18vh;
+  background: rgba(11, 11, 11, 0.92);
+}
+
+.navbar__search[class*='focused'] .navbar__search-input {
+  width: min(42rem, 92vw);
+  height: 3rem;
+  font-size: 1.05rem;
+  padding: 0 3.5rem 0 1.25rem;
+}
+
+.navbar__search[class*='focused'] [class*='dropdownMenu'] {
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  margin-top: 0.75rem;
+  width: min(42rem, 92vw);
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--jzx-white);
+}
+
+@media (max-width: 576px) {
+  .navbar__search[class*='focused'] {
+    padding-top: 12vh;
+  }
+
+  .navbar__search[class*='focused'] .navbar__search-input {
+    height: 2.75rem;
   }
 }
 
