@@ -6,7 +6,7 @@
 
 /*
  * libjzx docs theme: maximalist-minimal monochrome
- * - Backgrounds: onyx blacks (#242526 navbar, #1b1b1d content/surfaces)
+ * - Backgrounds: onyx black (#1b1b1d)
  * - Separators + icons: pure white
  * - Accent: baby blue (#85befd) ONLY
  */
@@ -20,7 +20,7 @@
     'Liberation Mono', monospace;
 
   --jzx-onyx: #1b1b1d;
-  --jzx-onyx-navbar: #242526;
+  --jzx-onyx-navbar: #1b1b1d;
   --jzx-white: #ffffff;
   --jzx-gray-900: #0f0f10;
   --jzx-gray-800: #1f1f22;
@@ -104,11 +104,11 @@
   /* Sidebar/menu selection uses blue highlight + grayscale hover. */
   --ifm-menu-color: var(--jzx-gray-400);
   --ifm-menu-color-active: var(--jzx-blue);
-  --ifm-menu-color-background-active: rgba(133, 190, 253, 0.14);
-  --ifm-menu-color-background-hover: rgba(255, 255, 255, 0.06);
+  --ifm-menu-color-background-active: transparent;
+  --ifm-menu-color-background-hover: transparent;
 
   /* Inline code should stay monochrome (no extra hues). */
-  --ifm-code-background: var(--jzx-gray-800);
+  --ifm-code-background: transparent;
   --ifm-code-color: var(--jzx-white);
 }
 
@@ -148,6 +148,36 @@
 
 .alert [class*='admonitionHeading'] {
   color: var(--jzx-blue);
+}
+
+/* Interactive accents without adding non-onyx backgrounds. */
+.menu__link {
+  border-left: 2px solid transparent;
+}
+
+.menu__link:hover {
+  border-left-color: var(--jzx-white);
+}
+
+.menu__link--active {
+  border-left-color: var(--jzx-blue);
+}
+
+code:not([class*='language-']) {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+table thead tr {
+  background: var(--jzx-onyx);
+}
+
+table tr {
+  background: var(--jzx-onyx);
+}
+
+table tr:nth-child(2n) {
+  background: var(--jzx-onyx);
 }
 
 /* Make UI icons pure white regardless of surrounding link color. */
