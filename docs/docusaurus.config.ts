@@ -83,6 +83,21 @@ const config: Config = {
     ],
   ],
 
+  themes: [
+    [
+      '@easyops-cn/docusaurus-search-local',
+      {
+        hashed: true,
+        indexDocs: true,
+        indexBlog: false,
+        indexPages: false,
+        language: ['en'],
+        removeDefaultStopWordFilter: true,
+        highlightSearchTermsOnTargetPage: true,
+      },
+    ],
+  ],
+
   themeConfig: {
     colorMode: {
       defaultMode: 'dark',
@@ -102,6 +117,10 @@ const config: Config = {
           type: 'docsVersionDropdown',
           position: 'left',
           dropdownActiveClassDisabled: true,
+        },
+        {
+          type: 'search',
+          position: 'right',
         },
         {
           href: `https://github.com/${organizationName}/${projectName}`,

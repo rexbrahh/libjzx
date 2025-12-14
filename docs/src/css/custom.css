@@ -6,7 +6,7 @@
 
 /*
  * libjzx docs theme: maximalist-minimal monochrome
- * - Backgrounds: onyx black (#1b1b1d)
+ * - Backgrounds: onyx black (#0b0b0b)
  * - Separators + icons: pure white
  * - Accent: baby blue (#85befd) ONLY
  */
@@ -19,7 +19,6 @@
   --ifm-font-family-monospace: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas,
     'Liberation Mono', monospace;
 
-  --jzx-onyx: #1b1b1d;
   --jzx-onyx: #0b0b0b;
   --jzx-onyx-navbar: #0b0b0b;
   --jzx-white: #ffffff;
@@ -91,6 +90,10 @@
   --ifm-navbar-background-color: var(--jzx-onyx-navbar);
   --ifm-footer-background-color: var(--jzx-onyx);
 
+  --ifm-navbar-search-input-background-color: var(--jzx-onyx);
+  --ifm-navbar-search-input-color: var(--jzx-white);
+  --ifm-navbar-search-input-placeholder-color: var(--jzx-gray-500);
+
   --ifm-global-radius: 6px;
   --ifm-code-font-size: 90%;
 
@@ -111,9 +114,28 @@
   /* Inline code should stay monochrome (no extra hues). */
   --ifm-code-background: transparent;
   --ifm-code-color: var(--jzx-white);
+
+  /* DocSearch-compatible styling (also used by local-search themes). */
+  --docsearch-primary-color: var(--jzx-blue);
+  --docsearch-text-color: var(--jzx-gray-400);
+  --docsearch-muted-color: var(--jzx-gray-500);
+  --docsearch-modal-background: var(--jzx-onyx);
+  --docsearch-searchbox-background: var(--jzx-onyx);
+  --docsearch-footer-background: var(--jzx-onyx);
+  --docsearch-hit-background: var(--jzx-onyx);
+  --docsearch-hit-color: var(--jzx-gray-400);
+  --docsearch-hit-shadow: none;
+  --docsearch-modal-shadow: 0 0 0 1px var(--jzx-white);
+  --docsearch-searchbox-shadow: 0 0 0 1px var(--jzx-white);
+  --docsearch-key-gradient: transparent;
+  --docsearch-key-shadow: none;
 }
 
 /* Layout separators and icon color normalization. */
+.navbar {
+  border-bottom: 1px solid var(--jzx-white);
+}
+
 .footer {
   background: var(--jzx-onyx);
   border-top: 1px solid var(--jzx-white);
@@ -140,6 +162,60 @@
 
 .theme-code-block .clean-btn {
   color: var(--jzx-white);
+}
+
+/* Search bar: keep it monochrome and high-contrast. */
+.navbar__search-input,
+.DocSearch-Button {
+  background: var(--jzx-onyx);
+  border: 1px solid var(--jzx-white);
+  box-shadow: none;
+  color: var(--jzx-white);
+}
+
+.navbar__search-input::placeholder,
+.DocSearch-Button-Placeholder {
+  color: var(--jzx-gray-500);
+  opacity: 1;
+}
+
+.DocSearch-Button .DocSearch-Search-Icon,
+.DocSearch-Button .DocSearch-Button-Key,
+.DocSearch-Modal svg {
+  color: var(--jzx-white);
+}
+
+.DocSearch-Button-Key {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: none;
+}
+
+.DocSearch-Modal {
+  border: 1px solid var(--jzx-white);
+  box-shadow: none;
+}
+
+.DocSearch-SearchBar {
+  border-bottom: 1px solid var(--jzx-white);
+}
+
+.DocSearch-Hit-source {
+  color: var(--jzx-white);
+}
+
+.DocSearch-Hit[aria-selected='true'] a {
+  box-shadow: 0 0 0 1px var(--jzx-blue);
+}
+
+.DocSearch-Hit a {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+
+.DocSearch-Footer {
+  border-top: 1px solid var(--jzx-white);
+  box-shadow: none;
 }
 
 /* Admonitions: keep structure, remove warning/danger hues. */
