@@ -1,9 +1,12 @@
 #include "jzx_internal.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 // -----------------------------------------------------------------------------
 // Utility helpers
@@ -63,7 +66,8 @@ static jzx_supervisor_state* jzx_supervisor_state_create(const jzx_supervisor_in
 }
 
 static void jzx_supervisor_state_destroy(jzx_supervisor_state* state, jzx_allocator* allocator) {
-    if (!state) return;
+    if (!state)
+        return;
     if (state->children) {
         jzx_free(allocator, state->children);
     }
@@ -71,7 +75,8 @@ static void jzx_supervisor_state_destroy(jzx_supervisor_state* state, jzx_alloca
 }
 
 static int jzx_supervisor_allow_restart(jzx_supervisor_state* sup, uint64_t now_ms) {
-    if (!sup) return 0;
+    if (!sup)
+        return 0;
     if (sup->config.intensity == 0 || sup->config.period_ms == 0) {
         return 1;
     }
@@ -102,7 +107,8 @@ static uint32_t jzx_sat_add32(uint32_t a, uint32_t b) {
 }
 
 static uint32_t jzx_sat_mul32(uint32_t a, uint32_t b) {
-    if (a == 0 || b == 0) return 0;
+    if (a == 0 || b == 0)
+        return 0;
     uint64_t prod = (uint64_t)a * (uint64_t)b;
     if (prod > UINT32_MAX) {
         return UINT32_MAX;
@@ -110,21 +116,130 @@ static uint32_t jzx_sat_mul32(uint32_t a, uint32_t b) {
     return (uint32_t)prod;
 }
 
-static jzx_err jzx_send_internal(jzx_loop* loop,
-                                 jzx_actor_id target,
-                                 void* data,
-                                 size_t len,
-                                 uint32_t tag,
-                                 jzx_actor_id sender);
+static jzx_err jzx_send_internal(jzx_loop* loop, jzx_actor_id target, void* data, size_t len,
+                                 uint32_t tag, jzx_actor_id sender);
 
 static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor);
+
+// -----------------------------------------------------------------------------
+// Wakeup fd helpers
+// -----------------------------------------------------------------------------
+
+static int jzx_set_fd_flags(int fd, int flags) {
+    int cur = fcntl(fd, F_GETFL);
+    if (cur == -1) {
+        return -1;
+    }
+    return fcntl(fd, F_SETFL, cur | flags);
+}
+
+static int jzx_set_fd_cloexec(int fd) {
+    int cur = fcntl(fd, F_GETFD);
+    if (cur == -1) {
+        return -1;
+    }
+    return fcntl(fd, F_SETFD, cur | FD_CLOEXEC);
+}
+
+static jzx_err jzx_wakeup_init(jzx_loop* loop) {
+    loop->wakeup_read_fd = -1;
+    loop->wakeup_write_fd = -1;
+
+    int fds[2];
+    if (pipe(fds) != 0) {
+        return JZX_ERR_UNKNOWN;
+    }
+    if (jzx_set_fd_flags(fds[0], O_NONBLOCK) != 0 || jzx_set_fd_flags(fds[1], O_NONBLOCK) != 0 ||
+        jzx_set_fd_cloexec(fds[0]) != 0 || jzx_set_fd_cloexec(fds[1]) != 0) {
+        close(fds[0]);
+        close(fds[1]);
+        return JZX_ERR_UNKNOWN;
+    }
+    loop->wakeup_read_fd = fds[0];
+    loop->wakeup_write_fd = fds[1];
+    return JZX_OK;
+}
+
+static void jzx_wakeup_deinit(jzx_loop* loop) {
+    if (loop->wakeup_read_fd >= 0) {
+        close(loop->wakeup_read_fd);
+    }
+    if (loop->wakeup_write_fd >= 0) {
+        close(loop->wakeup_write_fd);
+    }
+    loop->wakeup_read_fd = -1;
+    loop->wakeup_write_fd = -1;
+}
+
+static void jzx_wakeup_signal(jzx_loop* loop) {
+    if (!loop || loop->wakeup_write_fd < 0) {
+        return;
+    }
+    uint8_t byte = 0;
+    ssize_t rc = write(loop->wakeup_write_fd, &byte, 1);
+    (void)rc;
+}
+
+static void jzx_wakeup_drain(jzx_loop* loop) {
+    if (!loop || loop->wakeup_read_fd < 0) {
+        return;
+    }
+    uint8_t buf[64];
+    while (1) {
+        ssize_t rc = read(loop->wakeup_read_fd, buf, sizeof(buf));
+        if (rc > 0) {
+            continue;
+        }
+        if (rc == 0) {
+            return;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return;
+        }
+        return;
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Observer helpers
+// -----------------------------------------------------------------------------
+
+static void jzx_obs_actor_start(jzx_loop* loop, jzx_actor_id id, const char* name) {
+    if (loop && loop->observer.on_actor_start) {
+        loop->observer.on_actor_start(loop->observer_ctx, id, name);
+    }
+}
+
+static void jzx_obs_actor_stop(jzx_loop* loop, jzx_actor_id id, jzx_exit_reason reason) {
+    if (loop && loop->observer.on_actor_stop) {
+        loop->observer.on_actor_stop(loop->observer_ctx, id, reason);
+    }
+}
+
+static void jzx_obs_actor_restart(jzx_loop* loop, jzx_actor_id supervisor, jzx_actor_id child,
+                                  uint32_t attempt) {
+    if (loop && loop->observer.on_actor_restart) {
+        loop->observer.on_actor_restart(loop->observer_ctx, supervisor, child, attempt);
+    }
+}
+
+static void jzx_obs_supervisor_escalate(jzx_loop* loop, jzx_actor_id supervisor) {
+    if (loop && loop->observer.on_supervisor_escalate) {
+        loop->observer.on_supervisor_escalate(loop->observer_ctx, supervisor);
+    }
+}
+
+static void jzx_obs_mailbox_full(jzx_loop* loop, jzx_actor_id target) {
+    if (loop && loop->observer.on_mailbox_full) {
+        loop->observer.on_mailbox_full(loop->observer_ctx, target);
+    }
+}
 
 // -----------------------------------------------------------------------------
 // Mailbox implementation
 // -----------------------------------------------------------------------------
 
-static jzx_err jzx_mailbox_init(jzx_mailbox_impl* box,
-                                uint32_t capacity,
+static jzx_err jzx_mailbox_init(jzx_mailbox_impl* box, uint32_t capacity,
                                 jzx_allocator* allocator) {
     if (capacity == 0) {
         capacity = 1;
@@ -178,8 +293,7 @@ static int jzx_mailbox_has_items(const jzx_mailbox_impl* box) {
 // Actor table implementation
 // -----------------------------------------------------------------------------
 
-static jzx_err jzx_actor_table_init(jzx_actor_table* table,
-                                    uint32_t capacity,
+static jzx_err jzx_actor_table_init(jzx_actor_table* table, uint32_t capacity,
                                     jzx_allocator* allocator) {
     memset(table, 0, sizeof(*table));
     table->capacity = capacity;
@@ -231,10 +345,8 @@ static jzx_actor* jzx_actor_table_lookup(jzx_actor_table* table, jzx_actor_id id
     return table->slots[idx];
 }
 
-static jzx_err jzx_actor_table_insert(jzx_actor_table* table,
-                                      jzx_actor* actor,
-                                      jzx_allocator* allocator,
-                                      jzx_actor_id* out_id) {
+static jzx_err jzx_actor_table_insert(jzx_actor_table* table, jzx_actor* actor,
+                                      jzx_allocator* allocator, jzx_actor_id* out_id) {
     (void)allocator;
     if (table->free_top == 0) {
         return JZX_ERR_MAX_ACTORS;
@@ -250,8 +362,7 @@ static jzx_err jzx_actor_table_insert(jzx_actor_table* table,
     return JZX_OK;
 }
 
-static void jzx_actor_table_remove(jzx_actor_table* table,
-                                   jzx_actor* actor) {
+static void jzx_actor_table_remove(jzx_actor_table* table, jzx_actor* actor) {
     if (!actor) {
         return;
     }
@@ -274,9 +385,7 @@ static void jzx_actor_table_remove(jzx_actor_table* table,
 // Run queue implementation
 // -----------------------------------------------------------------------------
 
-static jzx_err jzx_run_queue_init(jzx_run_queue* rq,
-                                  uint32_t capacity,
-                                  jzx_allocator* allocator) {
+static jzx_err jzx_run_queue_init(jzx_run_queue* rq, uint32_t capacity, jzx_allocator* allocator) {
     memset(rq, 0, sizeof(*rq));
     rq->capacity = capacity > 0 ? capacity : 1;
     rq->entries = (jzx_actor**)jzx_alloc(allocator, sizeof(jzx_actor*) * rq->capacity);
@@ -329,18 +438,18 @@ static void jzx_teardown_actor(jzx_loop* loop, jzx_actor* actor) {
         return;
     }
     jzx_io_remove_actor(loop, actor->id);
+    jzx_exit_reason reason = JZX_EXIT_NORMAL;
+    if (actor->status == JZX_ACTOR_FAILED) {
+        reason = JZX_EXIT_FAIL;
+    }
+    jzx_obs_actor_stop(loop, actor->id, reason);
     if (actor->supervisor) {
-        jzx_child_exit* ev =
-            (jzx_child_exit*)jzx_alloc(&loop->allocator, sizeof(jzx_child_exit));
+        jzx_child_exit* ev = (jzx_child_exit*)jzx_alloc(&loop->allocator, sizeof(jzx_child_exit));
         if (ev) {
             ev->child = actor->id;
             ev->status = actor->status;
-            jzx_err err = jzx_send_internal(loop,
-                                            actor->supervisor,
-                                            ev,
-                                            sizeof(jzx_child_exit),
-                                            JZX_TAG_SYS_CHILD_EXIT,
-                                            0);
+            jzx_err err = jzx_send_internal(loop, actor->supervisor, ev, sizeof(jzx_child_exit),
+                                            JZX_TAG_SYS_CHILD_EXIT, 0);
             if (err != JZX_OK) {
                 jzx_free(&loop->allocator, ev);
             }
@@ -358,8 +467,10 @@ static void jzx_teardown_actor(jzx_loop* loop, jzx_actor* actor) {
 // Supervisor helpers
 // -----------------------------------------------------------------------------
 
-static jzx_child_state* jzx_supervisor_find_child(jzx_supervisor_state* sup, jzx_actor_id id, size_t* out_idx) {
-    if (!sup) return NULL;
+static jzx_child_state* jzx_supervisor_find_child(jzx_supervisor_state* sup, jzx_actor_id id,
+                                                  size_t* out_idx) {
+    if (!sup)
+        return NULL;
     for (size_t i = 0; i < sup->child_count; ++i) {
         if (sup->children[i].id == id) {
             if (out_idx) {
@@ -371,14 +482,14 @@ static jzx_child_state* jzx_supervisor_find_child(jzx_supervisor_state* sup, jzx
     return NULL;
 }
 
-static jzx_err jzx_supervisor_spawn_child(jzx_loop* loop,
-                                          jzx_actor_id supervisor_id,
+static jzx_err jzx_supervisor_spawn_child(jzx_loop* loop, jzx_actor_id supervisor_id,
                                           jzx_child_state* child) {
     jzx_spawn_opts opts = {
         .behavior = child->spec.behavior,
         .state = child->spec.state,
         .supervisor = supervisor_id,
         .mailbox_cap = child->spec.mailbox_cap,
+        .name = child->spec.name,
     };
     child->last_restart_ms = jzx_now_ms();
     return jzx_spawn(loop, &opts, &child->id);
@@ -391,27 +502,22 @@ static void jzx_supervisor_stop_child(jzx_loop* loop, jzx_child_state* child) {
     }
 }
 
-static void jzx_supervisor_schedule_restart(jzx_loop* loop,
-                                            jzx_actor* sup_actor,
-                                            size_t child_idx,
+static void jzx_supervisor_schedule_restart(jzx_loop* loop, jzx_actor* sup_actor, size_t child_idx,
                                             uint32_t delay_ms) {
     jzx_supervisor_state* sup = sup_actor->supervisor_state;
-    if (!sup || child_idx >= sup->child_count) return;
+    if (!sup || child_idx >= sup->child_count)
+        return;
     if (delay_ms == 0) {
         (void)jzx_supervisor_spawn_child(loop, sup_actor->id, &sup->children[child_idx]);
         return;
     }
     jzx_child_restart* payload =
         (jzx_child_restart*)jzx_alloc(&loop->allocator, sizeof(jzx_child_restart));
-    if (!payload) return;
+    if (!payload)
+        return;
     payload->child_index = (uint32_t)child_idx;
-    jzx_err err = jzx_send_after(loop,
-                                 sup_actor->id,
-                                 delay_ms,
-                                 payload,
-                                 sizeof(jzx_child_restart),
-                                 JZX_TAG_SYS_CHILD_RESTART,
-                                 NULL);
+    jzx_err err = jzx_send_after(loop, sup_actor->id, delay_ms, payload, sizeof(jzx_child_restart),
+                                 JZX_TAG_SYS_CHILD_RESTART, NULL);
     if (err != JZX_OK) {
         jzx_free(&loop->allocator, payload);
     }
@@ -419,7 +525,8 @@ static void jzx_supervisor_schedule_restart(jzx_loop* loop,
 
 static uint32_t jzx_supervisor_compute_delay(const jzx_supervisor_state* sup,
                                              const jzx_child_state* child) {
-    if (!sup || !child) return 0;
+    if (!sup || !child)
+        return 0;
     uint32_t base = child->spec.restart_delay_ms;
     jzx_backoff_type strategy = child->spec.backoff;
     if (strategy == JZX_BACKOFF_NONE) {
@@ -448,19 +555,32 @@ static uint32_t jzx_supervisor_compute_delay(const jzx_supervisor_state* sup,
     return base;
 }
 
-static void jzx_supervisor_restart_strategy(jzx_loop* loop,
-                                            jzx_actor* supervisor_actor,
-                                            size_t failed_idx,
+static void jzx_supervisor_restart_strategy(jzx_loop* loop, jzx_actor* supervisor_actor,
+                                            size_t failed_idx, jzx_actor_id failed_child_id,
                                             jzx_supervisor_state* sup) {
     uint32_t failed_delay = sup->children[failed_idx].spec.restart_delay_ms;
     switch (sup->config.strategy) {
     case JZX_SUP_ONE_FOR_ONE:
+        if (failed_child_id) {
+            uint32_t attempt = sup->children[failed_idx].restart_count + 1;
+            jzx_obs_actor_restart(loop, supervisor_actor->id, failed_child_id, attempt);
+        }
         sup->children[failed_idx].restart_count += 1;
         sup->children[failed_idx].last_restart_ms = jzx_now_ms();
         failed_delay = jzx_supervisor_compute_delay(sup, &sup->children[failed_idx]);
         jzx_supervisor_schedule_restart(loop, supervisor_actor, failed_idx, failed_delay);
         break;
     case JZX_SUP_ONE_FOR_ALL:
+        for (size_t i = 0; i < sup->child_count; ++i) {
+            jzx_actor_id child_id = sup->children[i].id;
+            if (i == failed_idx) {
+                child_id = failed_child_id;
+            }
+            if (child_id) {
+                uint32_t attempt = sup->children[i].restart_count + 1;
+                jzx_obs_actor_restart(loop, supervisor_actor->id, child_id, attempt);
+            }
+        }
         for (size_t i = 0; i < sup->child_count; ++i) {
             jzx_supervisor_stop_child(loop, &sup->children[i]);
         }
@@ -472,6 +592,16 @@ static void jzx_supervisor_restart_strategy(jzx_loop* loop,
         }
         break;
     case JZX_SUP_REST_FOR_ONE:
+        for (size_t i = failed_idx; i < sup->child_count; ++i) {
+            jzx_actor_id child_id = sup->children[i].id;
+            if (i == failed_idx) {
+                child_id = failed_child_id;
+            }
+            if (child_id) {
+                uint32_t attempt = sup->children[i].restart_count + 1;
+                jzx_obs_actor_restart(loop, supervisor_actor->id, child_id, attempt);
+            }
+        }
         for (size_t i = failed_idx; i < sup->child_count; ++i) {
             jzx_supervisor_stop_child(loop, &sup->children[i]);
         }
@@ -496,6 +626,7 @@ static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_m
     jzx_supervisor_state* sup = sup_actor->supervisor_state;
     if (msg->tag == JZX_TAG_SYS_CHILD_EXIT && msg->data) {
         jzx_child_exit* ev = (jzx_child_exit*)msg->data;
+        jzx_actor_id failed_child_id = ev->child;
         size_t idx = 0;
         jzx_child_state* child = jzx_supervisor_find_child(sup, ev->child, &idx);
         jzx_actor_status status = ev->status;
@@ -508,8 +639,7 @@ static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_m
         int restart = 0;
         if (child->spec.mode == JZX_CHILD_PERMANENT) {
             restart = 1;
-        } else if (child->spec.mode == JZX_CHILD_TRANSIENT &&
-                   status == JZX_ACTOR_FAILED) {
+        } else if (child->spec.mode == JZX_CHILD_TRANSIENT && status == JZX_ACTOR_FAILED) {
             restart = 1;
         }
 
@@ -519,6 +649,7 @@ static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_m
 
         uint64_t now = jzx_now_ms();
         if (!jzx_supervisor_allow_restart(sup, now)) {
+            jzx_obs_supervisor_escalate(ctx->loop, ctx->self);
             for (size_t i = 0; i < sup->child_count; ++i) {
                 jzx_supervisor_stop_child(ctx->loop, &sup->children[i]);
             }
@@ -526,7 +657,7 @@ static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_m
             return JZX_BEHAVIOR_FAIL;
         }
 
-        jzx_supervisor_restart_strategy(ctx->loop, sup_actor, idx, sup);
+        jzx_supervisor_restart_strategy(ctx->loop, sup_actor, idx, failed_child_id, sup);
         return JZX_BEHAVIOR_OK;
     }
 
@@ -578,12 +709,8 @@ static void jzx_async_queue_destroy(jzx_loop* loop) {
     }
 }
 
-static jzx_err jzx_async_enqueue(jzx_loop* loop,
-                                 jzx_actor_id target,
-                                 void* data,
-                                 size_t len,
-                                 uint32_t tag,
-                                 jzx_actor_id sender) {
+static jzx_err jzx_async_enqueue(jzx_loop* loop, jzx_actor_id target, void* data, size_t len,
+                                 uint32_t tag, jzx_actor_id sender) {
     if (!loop || !loop->async_mutex_initialized) {
         return JZX_ERR_INVALID_ARG;
     }
@@ -607,6 +734,7 @@ static jzx_err jzx_async_enqueue(jzx_loop* loop,
         loop->async_tail = msg;
     }
     pthread_mutex_unlock(&loop->async_mutex);
+    jzx_wakeup_signal(loop);
     return JZX_OK;
 }
 
@@ -771,12 +899,14 @@ static jzx_err jzx_io_init(jzx_loop* loop, uint32_t capacity) {
     loop->io_capacity = capacity ? capacity : 1;
     loop->io_count = 0;
     loop->io_dirty = 1;
-    loop->io_watchers = (jzx_io_watch*)jzx_alloc(&loop->allocator, sizeof(jzx_io_watch) * loop->io_capacity);
+    loop->io_watchers =
+        (jzx_io_watch*)jzx_alloc(&loop->allocator, sizeof(jzx_io_watch) * loop->io_capacity);
     if (!loop->io_watchers) {
         return JZX_ERR_NO_MEMORY;
     }
     memset(loop->io_watchers, 0, sizeof(jzx_io_watch) * loop->io_capacity);
-    loop->io_pollfds = (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * loop->io_capacity);
+    loop->io_pollfds =
+        (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * loop->io_capacity);
     if (!loop->io_pollfds) {
         return JZX_ERR_NO_MEMORY;
     }
@@ -798,11 +928,13 @@ static void jzx_io_deinit(jzx_loop* loop) {
 }
 
 static jzx_err jzx_io_reserve(jzx_loop* loop, uint32_t new_cap) {
-    jzx_io_watch* new_watchers = (jzx_io_watch*)jzx_alloc(&loop->allocator, sizeof(jzx_io_watch) * new_cap);
+    jzx_io_watch* new_watchers =
+        (jzx_io_watch*)jzx_alloc(&loop->allocator, sizeof(jzx_io_watch) * new_cap);
     if (!new_watchers) {
         return JZX_ERR_NO_MEMORY;
     }
-    struct pollfd* new_pollfds = (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * new_cap);
+    struct pollfd* new_pollfds =
+        (struct pollfd*)jzx_alloc(&loop->allocator, sizeof(struct pollfd) * new_cap);
     if (!new_pollfds) {
         jzx_free(&loop->allocator, new_watchers);
         return JZX_ERR_NO_MEMORY;
@@ -894,22 +1026,38 @@ static void jzx_io_rebuild_pollfds(jzx_loop* loop) {
 }
 
 static void jzx_io_poll(jzx_loop* loop, uint32_t timeout_ms) {
-    if (loop->io_count == 0) {
+    uint8_t use_wakeup = loop->wakeup_read_fd >= 0;
+    uint32_t nfds = loop->io_count + (use_wakeup ? 1u : 0u);
+    if (nfds == 0) {
         return;
     }
     jzx_io_rebuild_pollfds(loop);
+    struct pollfd pollfds[nfds];
+    uint32_t offset = 0;
+    if (use_wakeup) {
+        pollfds[0].fd = loop->wakeup_read_fd;
+        pollfds[0].events = POLLIN;
+        pollfds[0].revents = 0;
+        offset = 1;
+    }
+    for (uint32_t i = 0; i < loop->io_count; ++i) {
+        pollfds[offset + i] = loop->io_pollfds[i];
+        pollfds[offset + i].revents = 0;
+    }
     int wait_ms = (int)timeout_ms;
-    int rv = poll(loop->io_pollfds, loop->io_count, wait_ms);
+    int rv = poll(pollfds, nfds, wait_ms);
     if (rv <= 0) {
         return;
     }
+    if (use_wakeup && pollfds[0].revents) {
+        jzx_wakeup_drain(loop);
+    }
     for (uint32_t i = 0; i < loop->io_count; ++i) {
-        struct pollfd* pfd = &loop->io_pollfds[i];
-        if (!pfd->revents) {
+        struct pollfd* pfd = &pollfds[offset + i];
+        if (pfd->revents == 0) {
             continue;
         }
         uint32_t readiness = jzx_io_revents_to_readiness(pfd->revents);
-        pfd->revents = 0;
         if (readiness == 0) {
             continue;
         }
@@ -920,7 +1068,8 @@ static void jzx_io_poll(jzx_loop* loop, uint32_t timeout_ms) {
         }
         ev->fd = watch->fd;
         ev->readiness = readiness;
-        jzx_err err = jzx_send_internal(loop, watch->owner, ev, sizeof(jzx_io_event), JZX_TAG_SYS_IO, 0);
+        jzx_err err =
+            jzx_send_internal(loop, watch->owner, ev, sizeof(jzx_io_event), JZX_TAG_SYS_IO, 0);
         if (err != JZX_OK) {
             jzx_free(&loop->allocator, ev);
         }
@@ -1004,6 +1153,10 @@ jzx_loop* jzx_loop_create(const jzx_config* cfg) {
     memset(loop, 0, sizeof(*loop));
     loop->cfg = local;
     loop->allocator = local.allocator;
+    if (jzx_wakeup_init(loop) != JZX_OK) {
+        jzx_loop_destroy(loop);
+        return NULL;
+    }
 
     if (jzx_actor_table_init(&loop->actors, local.max_actors, &loop->allocator) != JZX_OK) {
         jzx_loop_destroy(loop);
@@ -1037,6 +1190,7 @@ void jzx_loop_destroy(jzx_loop* loop) {
     jzx_timer_system_shutdown(loop);
     jzx_async_queue_destroy(loop);
     jzx_io_deinit(loop);
+    jzx_wakeup_deinit(loop);
     for (uint32_t i = 0; i < loop->actors.capacity; ++i) {
         jzx_actor* actor = loop->actors.slots ? loop->actors.slots[i] : NULL;
         if (actor) {
@@ -1069,8 +1223,7 @@ int jzx_loop_run(jzx_loop* loop) {
                 break;
             }
             actor->in_run_queue = 0;
-            if (actor->status == JZX_ACTOR_STOPPING ||
-                actor->status == JZX_ACTOR_FAILED) {
+            if (actor->status == JZX_ACTOR_STOPPING || actor->status == JZX_ACTOR_FAILED) {
                 jzx_teardown_actor(loop, actor);
                 continue;
             }
@@ -1096,8 +1249,7 @@ int jzx_loop_run(jzx_loop* loop) {
                     break;
                 }
             }
-            if (actor->status == JZX_ACTOR_STOPPING ||
-                actor->status == JZX_ACTOR_FAILED) {
+            if (actor->status == JZX_ACTOR_STOPPING || actor->status == JZX_ACTOR_FAILED) {
                 jzx_teardown_actor(loop, actor);
             } else if (jzx_mailbox_has_items(&actor->mailbox)) {
                 jzx_schedule_actor(loop, actor);
@@ -1106,18 +1258,11 @@ int jzx_loop_run(jzx_loop* loop) {
         }
 
         if (loop->run_queue.count == 0) {
-            if (loop->actors.used == 0 &&
-                !jzx_async_has_pending(loop) &&
-                !jzx_timer_has_pending(loop) &&
-                loop->io_count == 0) {
+            if (loop->actors.used == 0 && !jzx_async_has_pending(loop) &&
+                !jzx_timer_has_pending(loop) && loop->io_count == 0) {
                 break;
             }
             jzx_io_poll(loop, loop->cfg.io_poll_timeout_ms);
-            struct timespec ts = {
-                .tv_sec = 0,
-                .tv_nsec = 1000000,
-            };
-            nanosleep(&ts, NULL);
         }
     }
     loop->running = 0;
@@ -1130,10 +1275,24 @@ void jzx_loop_request_stop(jzx_loop* loop) {
         return;
     }
     loop->stop_requested = 1;
+    jzx_wakeup_signal(loop);
     if (loop->timer_mutex_initialized) {
         pthread_mutex_lock(&loop->timer_mutex);
         pthread_cond_broadcast(&loop->timer_cond);
         pthread_mutex_unlock(&loop->timer_mutex);
+    }
+}
+
+void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx) {
+    if (!loop) {
+        return;
+    }
+    if (obs) {
+        loop->observer = *obs;
+        loop->observer_ctx = ctx;
+    } else {
+        memset(&loop->observer, 0, sizeof(loop->observer));
+        loop->observer_ctx = NULL;
     }
 }
 
@@ -1174,15 +1333,12 @@ jzx_err jzx_spawn(jzx_loop* loop, const jzx_spawn_opts* opts, jzx_actor_id* out_
         jzx_free(&loop->allocator, actor);
         return err;
     }
+    jzx_obs_actor_start(loop, actor->id, opts->name);
     return JZX_OK;
 }
 
-static jzx_err jzx_send_internal(jzx_loop* loop,
-                                 jzx_actor_id target,
-                                 void* data,
-                                 size_t len,
-                                 uint32_t tag,
-                                 jzx_actor_id sender) {
+static jzx_err jzx_send_internal(jzx_loop* loop, jzx_actor_id target, void* data, size_t len,
+                                 uint32_t tag, jzx_actor_id sender) {
     if (!loop) {
         return JZX_ERR_INVALID_ARG;
     }
@@ -1197,25 +1353,18 @@ static jzx_err jzx_send_internal(jzx_loop* loop,
         .sender = sender,
     };
     if (jzx_mailbox_push(&actor->mailbox, &msg) != 0) {
+        jzx_obs_mailbox_full(loop, target);
         return JZX_ERR_MAILBOX_FULL;
     }
     jzx_schedule_actor(loop, actor);
     return JZX_OK;
 }
 
-jzx_err jzx_send(jzx_loop* loop,
-                 jzx_actor_id target,
-                 void* data,
-                 size_t len,
-                 uint32_t tag) {
+jzx_err jzx_send(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag) {
     return jzx_send_internal(loop, target, data, len, tag, 0);
 }
 
-jzx_err jzx_send_async(jzx_loop* loop,
-                       jzx_actor_id target,
-                       void* data,
-                       size_t len,
-                       uint32_t tag) {
+jzx_err jzx_send_async(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag) {
     return jzx_async_enqueue(loop, target, data, len, tag, 0);
 }
 
@@ -1249,10 +1398,8 @@ jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
 // Supervisor spawn
 // -----------------------------------------------------------------------------
 
-jzx_err jzx_spawn_supervisor(jzx_loop* loop,
-                            const jzx_supervisor_init* init,
-                            jzx_actor_id parent,
-                            jzx_actor_id* out_id) {
+jzx_err jzx_spawn_supervisor(jzx_loop* loop, const jzx_supervisor_init* init, jzx_actor_id parent,
+                             jzx_actor_id* out_id) {
     if (!loop || !init || !init->children || init->child_count == 0) {
         return JZX_ERR_INVALID_ARG;
     }
@@ -1265,6 +1412,7 @@ jzx_err jzx_spawn_supervisor(jzx_loop* loop,
         .state = state,
         .supervisor = parent,
         .mailbox_cap = 0,
+        .name = NULL,
     };
     jzx_actor_id sup_id = 0;
     jzx_err err = jzx_spawn(loop, &opts, &sup_id);
@@ -1293,9 +1441,7 @@ jzx_err jzx_spawn_supervisor(jzx_loop* loop,
     return JZX_OK;
 }
 
-jzx_err jzx_supervisor_child_id(jzx_loop* loop,
-                                jzx_actor_id supervisor,
-                                size_t index,
+jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t index,
                                 jzx_actor_id* out_id) {
     if (!loop || !out_id) {
         return JZX_ERR_INVALID_ARG;
@@ -1315,13 +1461,8 @@ jzx_err jzx_supervisor_child_id(jzx_loop* loop,
 // Timers & IO
 // -----------------------------------------------------------------------------
 
-jzx_err jzx_send_after(jzx_loop* loop,
-                       jzx_actor_id target,
-                       uint32_t ms,
-                       void* data,
-                       size_t len,
-                       uint32_t tag,
-                       jzx_timer_id* out_timer) {
+jzx_err jzx_send_after(jzx_loop* loop, jzx_actor_id target, uint32_t ms, void* data, size_t len,
+                       uint32_t tag, jzx_timer_id* out_timer) {
     if (!loop) {
         return JZX_ERR_INVALID_ARG;
     }

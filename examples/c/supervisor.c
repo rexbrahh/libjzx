@@ -11,13 +11,15 @@ typedef struct {
 
 static tick_msg* make_tick(int tick) {
     tick_msg* msg = (tick_msg*)malloc(sizeof(tick_msg));
-    if (!msg) return NULL;
+    if (!msg)
+        return NULL;
     msg->tick = tick;
     return msg;
 }
 
 static jzx_behavior_result flapping_actor(jzx_context* ctx, const jzx_message* msg) {
-    if (!msg->data) return JZX_BEHAVIOR_FAIL;
+    if (!msg->data)
+        return JZX_BEHAVIOR_FAIL;
     tick_msg* t = (tick_msg*)msg->data;
     int next = t->tick + 1;
     printf("[child] tick=%d\n", t->tick);
@@ -29,9 +31,9 @@ static jzx_behavior_result flapping_actor(jzx_context* ctx, const jzx_message* m
     }
 
     tick_msg* next_msg = make_tick(next);
-    if (!next_msg) return JZX_BEHAVIOR_FAIL;
-    if (jzx_send_after(ctx->loop, ctx->self, 100, next_msg, sizeof(tick_msg), 0, NULL) !=
-        JZX_OK) {
+    if (!next_msg)
+        return JZX_BEHAVIOR_FAIL;
+    if (jzx_send_after(ctx->loop, ctx->self, 100, next_msg, sizeof(tick_msg), 0, NULL) != JZX_OK) {
         free(next_msg);
         return JZX_BEHAVIOR_FAIL;
     }
@@ -56,6 +58,7 @@ int main(void) {
             .mailbox_cap = 0,
             .restart_delay_ms = 100,
             .backoff = JZX_BACKOFF_EXPONENTIAL,
+            .name = NULL,
         },
     };
 
@@ -85,7 +88,8 @@ int main(void) {
     }
 
     tick_msg* first = make_tick(0);
-    if (!first) return 1;
+    if (!first)
+        return 1;
     if (jzx_send(loop, child_id, first, sizeof(tick_msg), 0) != JZX_OK) {
         free(first);
         return 1;

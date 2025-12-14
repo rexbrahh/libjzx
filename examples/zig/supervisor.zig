@@ -47,6 +47,7 @@ pub fn main() !void {
             .mailbox_cap = 0,
             .restart_delay_ms = 100,
             .backoff = c.JZX_BACKOFF_EXPONENTIAL,
+            .name = null,
         },
     };
 

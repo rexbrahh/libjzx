@@ -66,8 +66,12 @@ typedef struct {
 struct jzx_loop {
     jzx_config cfg;
     jzx_allocator allocator;
+    jzx_observer observer;
+    void* observer_ctx;
     jzx_actor_table actors;
     jzx_run_queue run_queue;
+    int wakeup_read_fd;
+    int wakeup_write_fd;
     pthread_mutex_t async_mutex;
     uint8_t async_mutex_initialized;
     jzx_async_msg* async_head;

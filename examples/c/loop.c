@@ -22,6 +22,7 @@ int main(void) {
         .state = NULL,
         .supervisor = 0,
         .mailbox_cap = 0,
+        .name = NULL,
     };
     jzx_actor_id actor_id = 0;
     if (jzx_spawn(loop, &opts, &actor_id) != JZX_OK) {

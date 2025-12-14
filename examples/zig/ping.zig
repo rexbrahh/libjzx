@@ -18,6 +18,7 @@ pub fn main() !void {
         .state = null,
         .supervisor = 0,
         .mailbox_cap = 0,
+        .name = null,
     };
     var actor_id: c.jzx_actor_id = 0;
     if (c.jzx_spawn(loop.ptr, &opts, &actor_id) != c.JZX_OK) {

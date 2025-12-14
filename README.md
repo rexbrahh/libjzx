@@ -15,6 +15,7 @@ The project standardizes on Zig 0.15.1 for orchestrating builds:
 zig build           # builds static + shared libraries and installs headers
 zig build test      # runs Zig wrapper tests (links against the C runtime)
 zig build examples  # compiles the sample Zig program under examples/zig
+zig build stress    # runs a small stress/smoke harness
 zig build fmt       # formats Zig sources
 ```
 
@@ -54,6 +55,10 @@ Each subsystem has its own placeholder implementation so new contributors can it
 - C example: `examples/c/supervisor.c`
 - Zig example: `examples/zig/supervisor.zig`
 - Design/usage notes: `docs/supervision.md`
+
+### Observability
+
+The runtime exposes a lightweight `jzx_observer` callback table. Set it via `jzx_loop_set_observer()` to receive actor lifecycle, restart/escalation, and mailbox full events.
 
 ### Nix + direnv dev shell
 

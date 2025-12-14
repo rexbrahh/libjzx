@@ -23,5 +23,8 @@ jobs:
       - name: Run tests
         run: zig build test
 
+      - name: Run stress (smoke)
+        run: zig build stress
+
       - name: Build examples
         run: zig build examples

@@ -111,6 +111,7 @@ pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
                 .state = shim,
                 .supervisor = opts.supervisor,
                 .mailbox_cap = opts.mailbox_cap,
+                .name = null,
             };
             var actor_id: c.jzx_actor_id = 0;
             const rc = c.jzx_spawn(loop, &spawn_opts, &actor_id);

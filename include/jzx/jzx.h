@@ -83,8 +83,13 @@ typedef enum {
     JZX_ACTOR_FAILED,
 } jzx_actor_status;
 
-typedef jzx_behavior_result (*jzx_behavior_fn)(jzx_context* ctx,
-                                               const jzx_message* msg);
+typedef enum {
+    JZX_EXIT_NORMAL = 0,
+    JZX_EXIT_FAIL = 1,
+    JZX_EXIT_PANIC = 2,
+} jzx_exit_reason;
+
+typedef jzx_behavior_result (*jzx_behavior_fn)(jzx_context* ctx, const jzx_message* msg);
 
 typedef enum {
     JZX_CHILD_PERMANENT,
@@ -111,6 +116,7 @@ typedef struct {
     void* state;
     jzx_actor_id supervisor;
     uint32_t mailbox_cap;
+    const char* name;
 } jzx_spawn_opts;
 
 jzx_err jzx_spawn(jzx_loop* loop, const jzx_spawn_opts* opts, jzx_actor_id* out_id);
@@ -122,6 +128,7 @@ typedef struct {
     uint32_t mailbox_cap;
     uint32_t restart_delay_ms;
     jzx_backoff_type backoff;
+    const char* name;
 } jzx_child_spec;
 
 typedef struct {
@@ -138,14 +145,10 @@ typedef struct {
     jzx_supervisor_spec supervisor;
 } jzx_supervisor_init;
 
-jzx_err jzx_spawn_supervisor(jzx_loop* loop,
-                            const jzx_supervisor_init* init,
-                            jzx_actor_id parent,
-                            jzx_actor_id* out_id);
+jzx_err jzx_spawn_supervisor(jzx_loop* loop, const jzx_supervisor_init* init, jzx_actor_id parent,
+                             jzx_actor_id* out_id);
 
-jzx_err jzx_supervisor_child_id(jzx_loop* loop,
-                                jzx_actor_id supervisor,
-                                size_t index,
+jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t index,
                                 jzx_actor_id* out_id);
 
 // --- Loop management -------------------------------------------------------
@@ -155,32 +158,30 @@ void jzx_loop_destroy(jzx_loop* loop);
 int jzx_loop_run(jzx_loop* loop);
 void jzx_loop_request_stop(jzx_loop* loop);
 
+typedef struct {
+    void (*on_actor_start)(void* ctx, jzx_actor_id id, const char* name);
+    void (*on_actor_stop)(void* ctx, jzx_actor_id id, jzx_exit_reason reason);
+    void (*on_actor_restart)(void* ctx, jzx_actor_id supervisor, jzx_actor_id child,
+                             uint32_t attempt);
+    void (*on_supervisor_escalate)(void* ctx, jzx_actor_id supervisor);
+    void (*on_mailbox_full)(void* ctx, jzx_actor_id target);
+} jzx_observer;
+
+void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx);
+
 // --- Messaging API ---------------------------------------------------------
 
-jzx_err jzx_send(jzx_loop* loop,
-                 jzx_actor_id target,
-                 void* data,
-                 size_t len,
-                 uint32_t tag);
+jzx_err jzx_send(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag);
 
-jzx_err jzx_send_async(jzx_loop* loop,
-                       jzx_actor_id target,
-                       void* data,
-                       size_t len,
-                       uint32_t tag);
+jzx_err jzx_send_async(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag);
 
 jzx_err jzx_actor_stop(jzx_loop* loop, jzx_actor_id id);
 jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id);
 
 // --- Timers & IO -----------------------------------------------------------
 
-jzx_err jzx_send_after(jzx_loop* loop,
-                       jzx_actor_id target,
-                       uint32_t ms,
-                       void* data,
-                       size_t len,
-                       uint32_t tag,
-                       jzx_timer_id* out_timer);
+jzx_err jzx_send_after(jzx_loop* loop, jzx_actor_id target, uint32_t ms, void* data, size_t len,
+                       uint32_t tag, jzx_timer_id* out_timer);
 
 jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer);
 
@@ -192,7 +193,7 @@ typedef struct {
     uint32_t readiness;
 } jzx_io_event;
 
-#define JZX_IO_READ  (1u << 0)
+#define JZX_IO_READ (1u << 0)
 #define JZX_IO_WRITE (1u << 1)
 
 #define JZX_TAG_SYS_CHILD_EXIT 0xffff0002u

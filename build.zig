@@ -94,11 +94,29 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(zig_sup);
     example_step.dependOn(&zig_sup.step);
 
+    const stress_module = b.createModule(.{
+        .root_source_file = b.path("tools/stress.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "jzx", .module = jzx_module }},
+    });
+    const stress_exe = b.addExecutable(.{
+        .name = "jzx-stress",
+        .root_module = stress_module,
+    });
+    b.installArtifact(stress_exe);
+
+    const stress_step = b.step("stress", "Run stress tools (smoke)");
+    const run_stress = b.addRunArtifact(stress_exe);
+    run_stress.addArgs(&.{"--smoke"});
+    stress_step.dependOn(&run_stress.step);
+
     const fmt = b.addFmt(.{ .paths = &.{
         "zig/jzx/lib.zig",
         "zig/tests/basic.zig",
         "examples/zig/ping.zig",
         "examples/zig/supervisor.zig",
+        "tools/stress.zig",
     } });
     const fmt_step = b.step("fmt", "Run zig fmt on Zig sources");
     fmt_step.dependOn(&fmt.step);
