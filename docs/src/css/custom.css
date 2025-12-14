@@ -129,6 +129,17 @@
   --docsearch-searchbox-shadow: 0 0 0 1px var(--jzx-white);
   --docsearch-key-gradient: transparent;
   --docsearch-key-shadow: none;
+
+  /* Search-local theme variables (used by @easyops-cn/docusaurus-search-local). */
+  --search-local-modal-background: var(--jzx-onyx);
+  --search-local-modal-shadow: 0 0 0 1px var(--jzx-white);
+  --search-local-hit-background: var(--jzx-onyx);
+  --search-local-hit-shadow: none;
+  --search-local-hit-color: var(--jzx-gray-400);
+  --search-local-muted-color: var(--jzx-gray-500);
+  --search-local-highlight-color: var(--jzx-blue);
+  --search-local-hit-active-color: var(--jzx-white);
+  --search-local-input-active-border-color: var(--jzx-blue);
 }
 
 /* Layout separators and icon color normalization. */
@@ -189,6 +200,11 @@
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.45);
   box-shadow: none;
+}
+
+.navbar__search [class*='searchHint'] {
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.45);
 }
 
 .DocSearch-Modal {
