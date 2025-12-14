@@ -104,7 +104,10 @@ This is a minimal “allocator vtable”. The runtime calls it for its internal 
 
 Why it exists: systems code often needs explicit control over allocation (arena allocators, tracing allocators, embedded use cases).
 
-TODO: Document whether the runtime ever calls `free(NULL)` (shouldn’t) and what alignment requirements are assumed.
+Practical contracts (based on the current runtime implementation):
+
+- Alignment: `alloc(ctx, size)` should return pointers aligned at least like `malloc` would (i.e., suitable for any normal C object; `alignof(max_align_t)` is a good mental model).
+- Null frees: the runtime guards null pointers at call sites (so it should not call `free(ctx, NULL)`), but a “`free(NULL)` is a no-op” implementation is still recommended for robustness.
 
 ## Runtime config (knobs that shape scheduling and capacity)
 
@@ -159,7 +162,19 @@ typedef struct {
 
 `JZX_TAG_SYS_IO` reserves a tag value for runtime-generated I/O readiness notifications.
 
-TODO: Document payload ownership and lifetime rules for `data` (when is it safe to free/stack-allocate?).
+Payload ownership and lifetime rules (critical):
+
+- The runtime does **not** deep-copy arbitrary payload bytes.
+  - A mailbox entry stores the `data` pointer + `len` as-is.
+- The runtime does **not** free user-provided payload pointers.
+  - You choose ownership: sender-owned, receiver-owned, reference-counted, etc.
+- Lifetime requirement:
+  - `data` must remain valid until the target actor’s behavior has consumed it.
+  - Heap allocation is the simplest safe strategy.
+  - Stack allocation can be safe only when you can prove the message will be consumed before the stack frame unwinds (e.g., send immediately before `jzx_loop_run`, and the actor stops deterministically).
+- Special case: runtime-owned payloads:
+  - For `JZX_TAG_SYS_IO`, the runtime allocates a `jzx_io_event` and passes it via `msg.data`.
+  - That payload must be freed with `jzx_loop_free(loop, msg.data)` (see the echo server example for the pattern).
 
 ## Behavior interface (what an actor “is”)
 
@@ -401,7 +416,14 @@ These callbacks exist for instrumentation without forcing a logging dependency i
 - All function pointers are optional; `NULL` means “don’t report that event”.
 - `ctx` is an opaque pointer the user provides (often a metrics/logging state struct).
 
-TODO: Document callback threading (which thread invokes them), and whether reentrancy is permitted.
+Callback threading and reentrancy (practical guidance):
+
+- Observer callbacks are invoked **synchronously** (inline) when the runtime emits the event.
+- If you confine all loop interactions to one thread (recommended), callbacks run on that same thread.
+- If you call certain APIs from other threads (not generally recommended; `jzx_send_async` is the exception), callbacks may execute on those threads for events that are triggered by those calls (for example, actor-start hooks during `jzx_spawn`).
+- Avoid reentrancy: treat observer callbacks as “read-only” with respect to the loop:
+  - don’t call back into libjzx from within an observer callback unless you’ve audited the path for recursion/deadlock.
+  - keep callbacks fast; offload heavy work to another queue/thread if needed.
 
 ## Messaging API (enqueue work for actors)
 

@@ -32,6 +32,11 @@ zig build test
 
 libjzx is built atop `libxev`.
 
-TODO: Add platform-specific instructions for obtaining/building `libxev` if it is not automatically provided by the Zig build.
+For normal development via Zig:
+
+- `libxev` is pulled as a Zig dependency (pinned in `build.zig.zon`).
+- `zig build` should fetch it automatically on first build (requires network access the first time).
+
+If you are compiling manually with `cc`/`pkg-config` (outside Zig), you may need a system-provided `libxev`.
 
 See [Troubleshooting](../guides/troubleshooting).

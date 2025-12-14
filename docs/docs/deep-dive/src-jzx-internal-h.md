@@ -251,8 +251,14 @@ This is a singly-linked list node that holds a message payload for later deliver
 Critical semantic note:
 
 - Payload is not copied; `data` must remain valid until the loop thread consumes it.
+Lifetime rule (what you should assume):
 
-TODO: Document the intended lifetime rules for async payloads (heap-owned? caller-owned?).
+- `jzx_send_async` is a *transport* for the pointer, not the bytes:
+  - the runtime does not deep-copy `len` bytes,
+  - the runtime does not free `data` for you.
+- Treat `data` as **caller-owned**:
+  - if you allocate it, you must decide who frees it (sender vs receiver),
+  - for cross-thread sends, heap allocation (or another stable lifetime mechanism) is the safe default.
 
 ## Timer nodes (sorted due list)
 

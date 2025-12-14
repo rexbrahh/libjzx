@@ -16,11 +16,17 @@ Symptoms: build failures or confusing compiler errors after upgrading/downgradin
 
 Symptoms: missing headers/libs, link errors, or `pkg-config` failures.
 
-TODO: Document the expected way `libxev` is provided (vendored vs system dependency) and list platform-specific setup steps.
+Expected setup (Zig build):
+
+- `libxev` is fetched as a Zig dependency (pinned in `build.zig.zon`).
+- The first `zig build` may download it into Zig’s cache.
+
+If you see `pkg-config` errors:
+
+- Those are typically from a manual compilation path (not required for the Zig build).
+- Prefer `zig build` unless you are explicitly debugging C compilation outside Zig.
 
 ## “Works locally, fails in CI”
 
 - Ensure you’re running the same commands as CI (`zig build fmt`, `zig build test`, `zig build stress`).
 - Check for environment-sensitive assumptions (paths, temp dirs, clock/timeouts).
-
-TODO: Add common CI failure modes as they are encountered.

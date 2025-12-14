@@ -31,7 +31,10 @@ zig build test
 zig build stress
 ```
 
-TODO: Add pointers to the most important tests/stress harnesses as they land.
+Pointers:
+
+- Tests: `zig/tests/basic.zig` ([walkthrough](/docs/deep-dive/zig-tests-basic-zig))
+- Stress tool: `tools/stress.zig` ([walkthrough](/docs/deep-dive/tools-stress-zig))
 
 ## Documentation site
 
