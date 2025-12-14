@@ -115,6 +115,7 @@
 
 /* Layout separators and icon color normalization. */
 .footer {
+  background: var(--jzx-onyx);
   border-top: 1px solid var(--jzx-white);
   border-bottom: 0;
 }
