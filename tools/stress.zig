@@ -2,20 +2,151 @@ const std = @import("std");
 const jzx = @import("jzx");
 const c = jzx.c;
 
+const RunConfig = struct {
+    smoke: bool,
+    use_observer: bool,
+    verbose: bool,
+};
+
+const ObserverStats = struct {
+    actor_start: u32 = 0,
+    actor_stop: u32 = 0,
+    actor_stop_normal: u32 = 0,
+    actor_stop_fail: u32 = 0,
+    actor_stop_panic: u32 = 0,
+    actor_restart: u32 = 0,
+    supervisor_escalate: u32 = 0,
+    mailbox_full: u32 = 0,
+};
+
+const ObserverSink = struct {
+    scenario: []const u8,
+    verbose: bool,
+    stats: *ObserverStats,
+};
+
+fn obsActorStart(ctx: ?*anyopaque, id: c.jzx_actor_id, name: [*c]const u8) callconv(.c) void {
+    const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
+    sink.stats.actor_start += 1;
+    if (!sink.verbose) return;
+    if (@intFromPtr(name) != 0) {
+        const zname: [*:0]const u8 = @ptrCast(name);
+        std.debug.print("[{s}] actor_start id={d} name={s}\n", .{ sink.scenario, id, std.mem.span(zname) });
+    } else {
+        std.debug.print("[{s}] actor_start id={d}\n", .{ sink.scenario, id });
+    }
+}
+
+fn obsActorStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exit_reason) callconv(.c) void {
+    const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
+    sink.stats.actor_stop += 1;
+    switch (reason) {
+        c.JZX_EXIT_NORMAL => sink.stats.actor_stop_normal += 1,
+        c.JZX_EXIT_FAIL => sink.stats.actor_stop_fail += 1,
+        c.JZX_EXIT_PANIC => sink.stats.actor_stop_panic += 1,
+        else => {},
+    }
+    if (!sink.verbose) return;
+    std.debug.print("[{s}] actor_stop id={d} reason={d}\n", .{ sink.scenario, id, @as(u32, @intCast(reason)) });
+}
+
+fn obsActorRestart(ctx: ?*anyopaque, supervisor: c.jzx_actor_id, child: c.jzx_actor_id, attempt: u32) callconv(.c) void {
+    const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
+    sink.stats.actor_restart += 1;
+    if (!sink.verbose) return;
+    std.debug.print("[{s}] actor_restart supervisor={d} child={d} attempt={d}\n", .{ sink.scenario, supervisor, child, attempt });
+}
+
+fn obsSupervisorEscalate(ctx: ?*anyopaque, supervisor: c.jzx_actor_id) callconv(.c) void {
+    const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
+    sink.stats.supervisor_escalate += 1;
+    if (!sink.verbose) return;
+    std.debug.print("[{s}] supervisor_escalate supervisor={d}\n", .{ sink.scenario, supervisor });
+}
+
+fn obsMailboxFull(ctx: ?*anyopaque, target: c.jzx_actor_id) callconv(.c) void {
+    const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
+    sink.stats.mailbox_full += 1;
+    if (!sink.verbose) return;
+    std.debug.print("[{s}] mailbox_full target={d}\n", .{ sink.scenario, target });
+}
+
+fn setupObserver(loop: *c.jzx_loop, sink: *ObserverSink) void {
+    var obs = c.jzx_observer{
+        .on_actor_start = obsActorStart,
+        .on_actor_stop = obsActorStop,
+        .on_actor_restart = obsActorRestart,
+        .on_supervisor_escalate = obsSupervisorEscalate,
+        .on_mailbox_full = obsMailboxFull,
+    };
+    c.jzx_loop_set_observer(loop, &obs, @ptrCast(sink));
+}
+
+fn printObserverSummary(label: []const u8, stats: ObserverStats) void {
+    std.debug.print(
+        "observer {s}: start={d} stop={d} (normal={d} fail={d} panic={d}) restart={d} escalate={d} mailbox_full={d}\n",
+        .{
+            label,
+            stats.actor_start,
+            stats.actor_stop,
+            stats.actor_stop_normal,
+            stats.actor_stop_fail,
+            stats.actor_stop_panic,
+            stats.actor_restart,
+            stats.supervisor_escalate,
+            stats.mailbox_full,
+        },
+    );
+}
+
 pub fn main() !void {
     var args = std.process.args();
     _ = args.next();
 
-    var smoke = false;
+    var cfg = RunConfig{
+        .smoke = false,
+        .use_observer = true,
+        .verbose = false,
+    };
+
+    var run_pingpong = false;
+    var run_timers = false;
+    var run_restarts = false;
+    var run_mailbox = false;
+    var any_selected = false;
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--smoke")) {
-            smoke = true;
+            cfg.smoke = true;
+        } else if (std.mem.eql(u8, arg, "--verbose")) {
+            cfg.verbose = true;
+        } else if (std.mem.eql(u8, arg, "--no-observer")) {
+            cfg.use_observer = false;
+        } else if (std.mem.eql(u8, arg, "--pingpong")) {
+            run_pingpong = true;
+            any_selected = true;
+        } else if (std.mem.eql(u8, arg, "--timers")) {
+            run_timers = true;
+            any_selected = true;
+        } else if (std.mem.eql(u8, arg, "--restarts")) {
+            run_restarts = true;
+            any_selected = true;
+        } else if (std.mem.eql(u8, arg, "--mailbox")) {
+            run_mailbox = true;
+            any_selected = true;
         }
     }
 
-    try runPingPong(smoke);
-    try runTimerStorm(smoke);
-    try runRestartThrash(smoke);
+    if (!any_selected) {
+        run_pingpong = true;
+        run_timers = true;
+        run_restarts = true;
+        run_mailbox = true;
+    }
+
+    if (run_pingpong) try runPingPong(cfg);
+    if (run_timers) try runTimerStorm(cfg);
+    if (run_restarts) try runRestartThrash(cfg);
+    if (run_mailbox) try runMailboxPressure(cfg);
 }
 
 const StressError = error{
@@ -44,11 +175,17 @@ fn pingPongBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callco
     return c.JZX_BEHAVIOR_OK;
 }
 
-fn runPingPong(smoke: bool) !void {
-    const iterations: u32 = if (smoke) 50_000 else 500_000;
+fn runPingPong(cfg: RunConfig) !void {
+    const iterations: u32 = if (cfg.smoke) 50_000 else 500_000;
 
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
+
+    var obs_stats = ObserverStats{};
+    var sink = ObserverSink{ .scenario = "pingpong", .verbose = cfg.verbose, .stats = &obs_stats };
+    if (cfg.use_observer) {
+        setupObserver(loop.ptr, &sink);
+    }
 
     var state_a = PingPongState{ .loop = loop.ptr, .remaining = iterations };
     var state_b = PingPongState{ .loop = loop.ptr, .remaining = iterations };
@@ -97,6 +234,9 @@ fn runPingPong(smoke: bool) !void {
         state_b.hits,
         end_ms - start_ms,
     });
+    if (cfg.use_observer) {
+        printObserverSummary("pingpong", obs_stats);
+    }
 }
 
 const TimerState = struct {
@@ -115,11 +255,17 @@ fn timerBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(
     return c.JZX_BEHAVIOR_OK;
 }
 
-fn runTimerStorm(smoke: bool) !void {
-    const timer_count: u32 = if (smoke) 2000 else 20_000;
+fn runTimerStorm(cfg: RunConfig) !void {
+    const timer_count: u32 = if (cfg.smoke) 2000 else 20_000;
 
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
+
+    var obs_stats = ObserverStats{};
+    var sink = ObserverSink{ .scenario = "timers", .verbose = cfg.verbose, .stats = &obs_stats };
+    if (cfg.use_observer) {
+        setupObserver(loop.ptr, &sink);
+    }
 
     var state = TimerState{ .target = timer_count };
     var opts = c.jzx_spawn_opts{
@@ -148,6 +294,9 @@ fn runTimerStorm(smoke: bool) !void {
         return StressError.StressFailed;
     }
     std.debug.print("stress timers: fired={d} elapsed_ms={d}\n", .{ state.hits, end_ms - start_ms });
+    if (cfg.use_observer) {
+        printObserverSummary("timers", obs_stats);
+    }
 }
 
 const RestartState = struct {
@@ -162,11 +311,17 @@ fn alwaysFail(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c)
     return c.JZX_BEHAVIOR_FAIL;
 }
 
-fn runRestartThrash(smoke: bool) !void {
-    const iterations: u32 = if (smoke) 100 else 1000;
+fn runRestartThrash(cfg: RunConfig) !void {
+    const iterations: u32 = if (cfg.smoke) 100 else 1000;
 
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
+
+    var obs_stats = ObserverStats{};
+    var sink = ObserverSink{ .scenario = "restarts", .verbose = cfg.verbose, .stats = &obs_stats };
+    if (cfg.use_observer) {
+        setupObserver(loop.ptr, &sink);
+    }
 
     var child_state = RestartState{};
     var child_spec = [_]c.jzx_child_spec{.{
@@ -217,4 +372,62 @@ fn runRestartThrash(smoke: bool) !void {
         return StressError.StressFailed;
     }
     std.debug.print("stress restarts: runs={d}\n", .{child_state.runs});
+    if (cfg.use_observer) {
+        printObserverSummary("restarts", obs_stats);
+    }
+}
+
+fn drain_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    c.jzx_loop_request_stop(ctx_ptr.loop.?);
+    return c.JZX_BEHAVIOR_STOP;
+}
+
+fn runMailboxPressure(cfg: RunConfig) !void {
+    const cap: u32 = 8;
+    const extra: u32 = if (cfg.smoke) 16 else 1024;
+
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var obs_stats = ObserverStats{};
+    var sink = ObserverSink{ .scenario = "mailbox", .verbose = cfg.verbose, .stats = &obs_stats };
+    if (cfg.use_observer) {
+        setupObserver(loop.ptr, &sink);
+    }
+
+    var opts = c.jzx_spawn_opts{
+        .behavior = drain_behavior,
+        .state = null,
+        .supervisor = 0,
+        .mailbox_cap = cap,
+        .name = "stress-mailbox",
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    if (c.jzx_spawn(loop.ptr, &opts, &actor_id) != c.JZX_OK) {
+        return StressError.StressFailed;
+    }
+
+    var ok_sends: u32 = 0;
+    var full_sends: u32 = 0;
+    for (0..(cap + extra)) |_| {
+        const rc = c.jzx_send(loop.ptr, actor_id, null, 0, 0);
+        if (rc == c.JZX_OK) {
+            ok_sends += 1;
+        } else if (rc == c.JZX_ERR_MAILBOX_FULL) {
+            full_sends += 1;
+        } else {
+            return StressError.StressFailed;
+        }
+    }
+
+    try loop.run();
+    std.debug.print("stress mailbox: ok={d} full={d}\n", .{ ok_sends, full_sends });
+    if (cfg.use_observer) {
+        printObserverSummary("mailbox", obs_stats);
+        if (obs_stats.mailbox_full != full_sends) {
+            return StressError.StressFailed;
+        }
+    }
 }

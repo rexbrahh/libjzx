@@ -60,6 +60,8 @@ Each subsystem has its own placeholder implementation so new contributors can it
 
 The runtime exposes a lightweight `jzx_observer` callback table. Set it via `jzx_loop_set_observer()` to receive actor lifecycle, restart/escalation, and mailbox full events.
 
+See `docs/observability.md` for usage notes and how to interpret `zig build stress` output.
+
 ### Nix + direnv dev shell
 
 The repo ships with a flake-based development shell. If you use [direnv](https://direnv.net/):
