@@ -122,7 +122,7 @@ const config: Config = {
     prism: {
       theme: prismTheme,
       darkTheme: prismTheme,
-      additionalLanguages: ['zig', 'bash', 'diff'],
+      additionalLanguages: ['c', 'zig', 'bash', 'diff'],
     },
   } satisfies Preset.ThemeConfig,
 };

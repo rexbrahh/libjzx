@@ -20,7 +20,18 @@ const prismTheme: PrismTheme = {
       },
     },
     {
-      types: ['keyword', 'tag', 'attr-name', 'selector'],
+      types: [
+        'keyword',
+        'builtin',
+        'builtin-type',
+        'directive',
+        'directive-hash',
+        'macro',
+        'macro-name',
+        'tag',
+        'attr-name',
+        'selector',
+      ],
       style: {
         color: '#85befd',
         fontWeight: '600',
@@ -39,7 +50,7 @@ const prismTheme: PrismTheme = {
       },
     },
     {
-      types: ['number', 'boolean', 'constant', 'symbol', 'builtin'],
+      types: ['number', 'boolean', 'constant', 'symbol'],
       style: {
         color: '#c2c6cc',
       },
