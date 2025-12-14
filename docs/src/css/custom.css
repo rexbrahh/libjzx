@@ -4,70 +4,163 @@
  * work well for content-centric websites.
  */
 
-/* You can override the default Infima variables here. */
-:root {
+/*
+ * libjzx docs theme: maximalist-minimal monochrome
+ * - Backgrounds: onyx blacks (#242526 navbar, #1b1b1d content/surfaces)
+ * - Separators + icons: pure white
+ * - Accent: baby blue (#85befd) ONLY
+ */
+
+:root,
+[data-theme='dark'],
+[data-theme='light'] {
   --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial,
     sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   --ifm-font-family-monospace: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas,
     'Liberation Mono', monospace;
 
-  --ifm-color-primary: #0969da;
-  --ifm-color-primary-dark: #055fca;
-  --ifm-color-primary-darker: #0559be;
-  --ifm-color-primary-darkest: #044592;
-  --ifm-color-primary-light: #1972e3;
-  --ifm-color-primary-lighter: #2a7ce8;
-  --ifm-color-primary-lightest: #539bf5;
+  --jzx-onyx: #1b1b1d;
+  --jzx-onyx-navbar: #242526;
+  --jzx-white: #ffffff;
+  --jzx-gray-900: #0f0f10;
+  --jzx-gray-800: #1f1f22;
+  --jzx-gray-700: #2c2c30;
+  --jzx-gray-500: #9ea3a8;
+  --jzx-gray-400: #c2c6cc;
+  --jzx-blue: #85befd;
 
-  --ifm-background-color: #ffffff;
-  --ifm-font-color-base: #24292f;
-  --ifm-heading-color: #24292f;
-  --ifm-link-color: #0969da;
-  --ifm-link-hover-color: #0550ae;
+  /* Single accent color (no secondary hues). */
+  --ifm-color-primary: var(--jzx-blue);
+  --ifm-color-primary-dark: var(--jzx-blue);
+  --ifm-color-primary-darker: var(--jzx-blue);
+  --ifm-color-primary-darkest: var(--jzx-blue);
+  --ifm-color-primary-light: var(--jzx-blue);
+  --ifm-color-primary-lighter: var(--jzx-blue);
+  --ifm-color-primary-lightest: var(--jzx-blue);
+
+  /* Remove non-blue semantic colors (grayscale only). */
+  --ifm-color-success: var(--jzx-white);
+  --ifm-color-success-dark: var(--jzx-white);
+  --ifm-color-success-darker: var(--jzx-white);
+  --ifm-color-success-darkest: var(--jzx-white);
+  --ifm-color-success-light: var(--jzx-white);
+  --ifm-color-success-lighter: var(--jzx-white);
+  --ifm-color-success-lightest: var(--jzx-white);
+
+  --ifm-color-warning: var(--jzx-white);
+  --ifm-color-warning-dark: var(--jzx-white);
+  --ifm-color-warning-darker: var(--jzx-white);
+  --ifm-color-warning-darkest: var(--jzx-white);
+  --ifm-color-warning-light: var(--jzx-white);
+  --ifm-color-warning-lighter: var(--jzx-white);
+  --ifm-color-warning-lightest: var(--jzx-white);
+
+  --ifm-color-danger: var(--jzx-white);
+  --ifm-color-danger-dark: var(--jzx-white);
+  --ifm-color-danger-darker: var(--jzx-white);
+  --ifm-color-danger-darkest: var(--jzx-white);
+  --ifm-color-danger-light: var(--jzx-white);
+  --ifm-color-danger-lighter: var(--jzx-white);
+  --ifm-color-danger-lightest: var(--jzx-white);
+
+  --ifm-color-info: var(--jzx-white);
+  --ifm-color-info-dark: var(--jzx-white);
+  --ifm-color-info-darker: var(--jzx-white);
+  --ifm-color-info-darkest: var(--jzx-white);
+  --ifm-color-info-light: var(--jzx-white);
+  --ifm-color-info-lighter: var(--jzx-white);
+  --ifm-color-info-lightest: var(--jzx-white);
+
+  /* Core surfaces. */
+  --ifm-background-color: var(--jzx-onyx);
+  --ifm-background-surface-color: var(--jzx-onyx);
+  --ifm-font-color-base: var(--jzx-gray-400);
+  --ifm-heading-color: var(--jzx-white);
+
+  /* Links: blue is the only allowed hue. */
+  --ifm-link-color: var(--jzx-blue);
+  --ifm-link-hover-color: var(--jzx-blue);
+
+  /* Borders and separators (pure white). */
+  --ifm-toc-border-color: var(--jzx-white);
+  --ifm-table-border-color: var(--jzx-white);
+  --ifm-hr-border-color: var(--jzx-white);
+  --ifm-navbar-shadow: 0 1px 0 var(--jzx-white);
+
+  --ifm-navbar-background-color: var(--jzx-onyx-navbar);
+  --ifm-footer-background-color: var(--jzx-onyx);
 
   --ifm-global-radius: 6px;
   --ifm-code-font-size: 90%;
-  --ifm-table-border-color: #d0d7de;
-  --ifm-toc-border-color: #d0d7de;
 
-  --ifm-navbar-background-color: #ffffff;
-  --ifm-navbar-shadow: 0 1px 0 rgba(208, 215, 222, 1);
-  --ifm-footer-background-color: #f6f8fa;
+  /* Used by local modules (home hero) to keep the theme single-sourced. */
+  --jzx-surface-1: var(--jzx-onyx);
+  --jzx-border: var(--jzx-white);
+  --jzx-muted: var(--jzx-gray-500);
 
-  --docusaurus-highlighted-code-line-bg: rgba(9, 105, 218, 0.12);
+  /* Blue highlight is allowed; keep it consistent. */
+  --docusaurus-highlighted-code-line-bg: rgba(133, 190, 253, 0.16);
 
-  --jzx-surface-1: #f6f8fa;
-  --jzx-border: #d0d7de;
-  --jzx-muted: #57606a;
+  /* Sidebar/menu selection uses blue highlight + grayscale hover. */
+  --ifm-menu-color: var(--jzx-gray-400);
+  --ifm-menu-color-active: var(--jzx-blue);
+  --ifm-menu-color-background-active: rgba(133, 190, 253, 0.14);
+  --ifm-menu-color-background-hover: rgba(255, 255, 255, 0.06);
+
+  /* Inline code should stay monochrome (no extra hues). */
+  --ifm-code-background: var(--jzx-gray-800);
+  --ifm-code-color: var(--jzx-white);
 }
 
-/* For readability concerns, you should choose a lighter palette in dark mode. */
-[data-theme='dark'] {
-  --ifm-color-primary: #85befd;
-  --ifm-color-primary-dark: #5da9fc;
-  --ifm-color-primary-darker: #3a96fc;
-  --ifm-color-primary-darkest: #087bfb;
-  --ifm-color-primary-light: #add3fe;
-  --ifm-color-primary-lighter: #d0e6fe;
-  --ifm-color-primary-lightest: #e9f3ff;
+/* Layout separators and icon color normalization. */
+.footer {
+  border-top: 1px solid var(--jzx-white);
+  border-bottom: 0;
+}
 
-  --ifm-background-color: #1b1b1d;
-  --ifm-background-surface-color: #1b1b1d;
-  --ifm-font-color-base: #c9d1d9;
-  --ifm-heading-color: #c9d1d9;
-  --ifm-link-color: #85befd;
-  --ifm-link-hover-color: #add3fe;
+.theme-doc-sidebar-container {
+  background: var(--jzx-onyx);
+  border-right: 1px solid var(--jzx-white);
+}
 
-  --ifm-table-border-color: #30363d;
-  --ifm-toc-border-color: #30363d;
+.theme-doc-toc-desktop {
+  border-left: 1px solid var(--jzx-white);
+}
 
-  --ifm-navbar-background-color: #242526;
-  --ifm-navbar-shadow: 0 1px 0 rgba(48, 54, 61, 1);
-  --ifm-footer-background-color: #1b1b1d;
+/* Code blocks: onyx background, white border, monochrome controls. */
+.theme-code-block {
+  border: 1px solid var(--jzx-white);
+}
 
-  --docusaurus-highlighted-code-line-bg: rgba(133, 190, 253, 0.18);
+.theme-code-block pre {
+  background: var(--jzx-onyx);
+}
 
-  --jzx-surface-1: #1b1b1d;
-  --jzx-border: #30363d;
-  --jzx-muted: #8b949e;
+.theme-code-block .clean-btn {
+  color: var(--jzx-white);
+}
+
+/* Admonitions: keep structure, remove warning/danger hues. */
+.alert {
+  background: var(--jzx-onyx);
+  border: 1px solid var(--jzx-white);
+}
+
+.alert [class*='admonitionHeading'] {
+  color: var(--jzx-blue);
+}
+
+/* Make UI icons pure white regardless of surrounding link color. */
+.navbar svg,
+.menu svg,
+.footer svg,
+.theme-doc-sidebar-container svg,
+.theme-doc-toc-desktop svg,
+.theme-doc-toc-mobile svg,
+.theme-doc-breadcrumbs svg,
+.theme-edit-this-page svg,
+.pagination-nav svg {
+  color: var(--jzx-white);
+  fill: currentColor;
+  stroke: currentColor;
 }

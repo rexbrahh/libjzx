@@ -1,6 +1,6 @@
-import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+import prismTheme from './src/prismTheme';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -75,7 +75,9 @@ const config: Config = {
 
   themeConfig: {
     colorMode: {
-      respectPrefersColorScheme: true,
+      defaultMode: 'dark',
+      disableSwitch: true,
+      respectPrefersColorScheme: false,
     },
     navbar: {
       title: 'libjzx',
@@ -94,7 +96,7 @@ const config: Config = {
       ],
     },
     footer: {
-      style: 'light',
+      style: 'dark',
       links: [
         {
           title: 'Documentation',
@@ -118,8 +120,8 @@ const config: Config = {
       copyright: `Copyright © ${new Date().getFullYear()} libjzx.`,
     },
     prism: {
-      theme: prismThemes.github,
-      darkTheme: prismThemes.github,
+      theme: prismTheme,
+      darkTheme: prismTheme,
       additionalLanguages: ['zig', 'bash', 'diff'],
     },
   } satisfies Preset.ThemeConfig,
