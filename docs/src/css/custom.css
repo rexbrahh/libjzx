@@ -139,7 +139,7 @@
   --search-local-muted-color: var(--jzx-gray-500);
   --search-local-highlight-color: var(--jzx-blue);
   --search-local-hit-active-color: var(--jzx-white);
-  --search-local-input-active-border-color: var(--jzx-blue);
+  --search-local-input-active-border-color: var(--jzx-white);
 }
 
 /* Layout separators and icon color normalization. */
@@ -225,10 +225,12 @@
 .navbar__search[class*='focused'] {
   position: fixed !important;
   top: 18vh;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
+  right: 0;
+  margin: 0 auto;
   z-index: 10000;
-  width: min(42rem, 92vw);
+  isolation: isolate;
+  width: min(52rem, 94vw);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -237,8 +239,8 @@
 .navbar__search[class*='focused']::before {
   content: '';
   position: fixed;
-  inset: -4px;
-  background: rgba(11, 11, 11, 0.98);
+  inset: 0;
+  background: rgba(11, 11, 11, 0.94);
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   z-index: -1;
@@ -297,13 +299,14 @@
 
 .navbar__search [class*='searchHintContainer'] {
   gap: 0.2rem;
+  border: 0 !important;
 }
 
 .navbar__search [class*='searchHint'] {
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-  padding: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
   color: var(--jzx-gray-500);
 }
 
