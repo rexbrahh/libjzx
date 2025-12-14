@@ -106,15 +106,6 @@ const config: Config = {
           ],
         },
         {
-          title: 'Project',
-          items: [
-            {
-              label: 'GitHub repository',
-              href: `https://github.com/${organizationName}/${projectName}`,
-            },
-          ],
-        },
-        {
           title: 'Links',
           items: [
             {
