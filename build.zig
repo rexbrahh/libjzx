@@ -112,6 +112,19 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(zig_echo);
     example_step.dependOn(&zig_echo.step);
 
+    const typed_module = b.createModule(.{
+        .root_source_file = b.path("examples/zig/typed_actor.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "jzx", .module = jzx_module }},
+    });
+    const zig_typed = b.addExecutable(.{
+        .name = "zig-typed-actor",
+        .root_module = typed_module,
+    });
+    b.installArtifact(zig_typed);
+    example_step.dependOn(&zig_typed.step);
+
     const stress_module = b.createModule(.{
         .root_source_file = b.path("tools/stress.zig"),
         .target = target,
@@ -130,12 +143,14 @@ pub fn build(b: *std.Build) void {
     stress_step.dependOn(&run_stress.step);
 
     const fmt = b.addFmt(.{ .paths = &.{
+        "build.zig",
         "src/jzx_xev.zig",
         "zig/jzx/lib.zig",
         "zig/tests/basic.zig",
         "examples/zig/echo_server.zig",
         "examples/zig/ping.zig",
         "examples/zig/supervisor.zig",
+        "examples/zig/typed_actor.zig",
         "tools/stress.zig",
     } });
     const fmt_step = b.step("fmt", "Run zig fmt on Zig sources");
