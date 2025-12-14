@@ -13,6 +13,10 @@ User code schedules timers via `jzx_send_after()`, which enqueues a message to a
   - Cancels a pending timer.
   - Returns `JZX_ERR_TIMER_INVALID` if the timer is unknown, already fired, or already cancelled.
 
+## Timing and clocks
+
+Timer due times are computed using a monotonic clock (`CLOCK_MONOTONIC`), so wall-clock adjustments do not affect when timers fire.
+
 ## Ownership and payload lifetime
 
 - `data` is not copied.
@@ -31,4 +35,3 @@ This matches the v1 message model: the sender controls payload lifetime and owne
 Destroying a loop stops the timer thread and drops any pending timers.
 
 Pending timer entries are freed internally, but any timer payload pointers are not freed (see ownership rules above).
-
