@@ -1,0 +1,58 @@
+# libjzx documentation site
+
+This directory contains the libjzx documentation website, built with [Docusaurus](https://docusaurus.io/).
+
+## Prerequisites
+
+Docusaurus requires **Node.js 20+**.
+
+Verify:
+
+```sh
+node -v
+npm -v
+```
+
+## Install dependencies
+
+From the repo root:
+
+```sh
+cd docs
+npm install
+```
+
+## Local development
+
+```sh
+cd docs
+npm run start
+```
+
+## Production build
+
+```sh
+cd docs
+npm run build
+```
+
+The static site is generated into `docs/build/`.
+
+## Serve the production build locally
+
+```sh
+cd docs
+npm run serve
+```
+
+## GitHub Pages notes (url/baseUrl)
+
+This site’s `docusaurus.config.ts` automatically chooses a suitable `baseUrl` on GitHub Actions:
+
+- **Project Pages** (most repos): `https://<owner>.github.io/<repo>/`
+- **Org/User Pages** (repo named `<owner>.github.io`): `https://<owner>.github.io/`
+
+To override locally or in other CI systems, set:
+
+- `DOCS_URL` (example: `https://rexbrahh.github.io`)
+- `DOCS_BASE_URL` (example: `/libjzx/` or `/`)
