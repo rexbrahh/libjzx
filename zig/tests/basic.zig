@@ -340,6 +340,29 @@ test "cancelled timer does not fire" {
     try std.testing.expectEqual(@as(u32, 0), state);
 }
 
+test "timer drop when actor stops" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    var state: u32 = 0;
+    var opts = c.jzx_spawn_opts{
+        .behavior = increment_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payload: u32 = 5;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_send_after(loop.ptr, actor_id, 1, &payload, @sizeOf(u32), 0, null));
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_actor_stop(loop.ptr, actor_id));
+
+    try loop.run();
+    try std.testing.expectEqual(@as(u32, 0), state);
+}
+
 test "many timers fire" {
     var loop = try jzx.Loop.create(null);
     defer loop.deinit();
@@ -365,6 +388,38 @@ test "many timers fire" {
 
     try loop.run();
     try std.testing.expectEqual(timer_count, timer_state.hits);
+}
+
+test "timer delivery preserves enqueue order" {
+    var loop = try jzx.Loop.create(null);
+    defer loop.deinit();
+
+    const timer_count: u32 = 32;
+
+    var state = SeqState{
+        .expected = 0,
+        .remaining = timer_count,
+        .ok = true,
+    };
+    var opts = c.jzx_spawn_opts{
+        .behavior = seq_behavior,
+        .state = &state,
+        .supervisor = 0,
+        .mailbox_cap = 1024,
+        .name = null,
+    };
+    var actor_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &opts, &actor_id));
+
+    var payloads = [_]u32{0} ** timer_count;
+    for (&payloads, 0..) |*item, idx| {
+        item.* = @as(u32, @intCast(idx));
+        try std.testing.expectEqual(c.JZX_OK, c.jzx_send_after(loop.ptr, actor_id, 1, item, @sizeOf(u32), 0, null));
+    }
+
+    try loop.run();
+    try std.testing.expect(state.ok);
+    try std.testing.expectEqual(@as(u32, 0), state.remaining);
 }
 
 const PingPongState = struct {
@@ -461,7 +516,7 @@ fn io_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c
         if ((event.readiness & c.JZX_IO_READ) != 0) {
             state_ptr.* += 1;
         }
-        std.c.free(@ptrCast(data_ptr));
+        c.jzx_loop_free(ctx_ptr.loop.?, data_ptr);
         return c.JZX_BEHAVIOR_STOP;
     }
     return c.JZX_BEHAVIOR_OK;
@@ -540,12 +595,62 @@ const RestartState = struct {
     runs: u32 = 0,
 };
 
+fn scheduleSelf(loop: *c.jzx_loop, self: c.jzx_actor_id, ms: u32) void {
+    _ = c.jzx_send_after(loop, self, ms, null, 0, 0, null);
+}
+
 fn failThenStop(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
     const state = @as(*RestartState, @ptrCast(@alignCast(ctx_ptr.state.?)));
     state.runs += 1;
     return if (state.runs == 1) c.JZX_BEHAVIOR_FAIL else c.JZX_BEHAVIOR_STOP;
+}
+
+const TransientDriverState = struct {
+    sup_id: c.jzx_actor_id,
+    original_child_id: c.jzx_actor_id,
+    stage: u8 = 0,
+    ticks: u32 = 0,
+    timed_out: bool = false,
+};
+
+fn transientDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*TransientDriverState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+
+    state.ticks += 1;
+    if (state.ticks > 5000) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    var child_id: c.jzx_actor_id = 0;
+    if (c.jzx_supervisor_child_id(ctx_ptr.loop.?, state.sup_id, 0, &child_id) != c.JZX_OK) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    if (state.stage == 0) {
+        _ = c.jzx_send(ctx_ptr.loop.?, state.original_child_id, null, 0, 0);
+        state.stage = 1;
+    } else if (state.stage == 1) {
+        if (child_id != 0 and child_id != state.original_child_id) {
+            _ = c.jzx_send(ctx_ptr.loop.?, child_id, null, 0, 0);
+            state.stage = 2;
+        }
+    } else {
+        if (child_id == 0) {
+            c.jzx_loop_request_stop(ctx_ptr.loop.?);
+            return c.JZX_BEHAVIOR_STOP;
+        }
+    }
+
+    scheduleSelf(ctx_ptr.loop.?, ctx_ptr.self, 1);
+    return c.JZX_BEHAVIOR_OK;
 }
 
 test "supervisor restarts transient child once" {
@@ -580,37 +685,26 @@ test "supervisor restarts transient child once" {
     var child_id: c.jzx_actor_id = 0;
     try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
     try std.testing.expect(child_id != 0);
-    const original_child_id = child_id;
 
-    var runner = try std.Thread.spawn(.{}, struct {
-        fn run(lp: *jzx.Loop) void {
-            _ = lp.run() catch {};
-        }
-    }.run, .{&loop});
+    var driver_state = TransientDriverState{
+        .sup_id = sup_id,
+        .original_child_id = child_id,
+    };
+    var driver_opts = c.jzx_spawn_opts{
+        .behavior = transientDriver,
+        .state = &driver_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var driver_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &driver_opts, &driver_id));
+    _ = c.jzx_send(loop.ptr, driver_id, null, 0, 0);
 
-    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, child_id, null, 0, 0));
-
-    // After restart, child id may change; fetch and send again.
-    var wait_attempts: u16 = 0;
-    while (wait_attempts < 100) : (wait_attempts += 1) {
-        try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
-        if (child_id != 0 and child_id != original_child_id) break;
-        std.Thread.sleep(5 * std.time.ns_per_ms);
-    }
-    try std.testing.expect(child_id != 0 and child_id != original_child_id);
-    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, child_id, null, 0, 0));
-
-    wait_attempts = 0;
-    while (wait_attempts < 100) : (wait_attempts += 1) {
-        try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
-        if (child_id == 0) break;
-        std.Thread.sleep(5 * std.time.ns_per_ms);
-    }
-    loop.requestStop();
-
-    runner.join();
+    try loop.run();
 
     try std.testing.expectEqual(@as(u32, 2), child_state.runs);
+    try std.testing.expect(!driver_state.timed_out);
 }
 
 fn alwaysFail(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
@@ -619,6 +713,74 @@ fn alwaysFail(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c)
     const state = @as(*RestartState, @ptrCast(@alignCast(ctx_ptr.state.?)));
     state.runs += 1;
     return c.JZX_BEHAVIOR_FAIL;
+}
+
+const EscalationObsState = struct {
+    sup_id: c.jzx_actor_id,
+    escalations: u32 = 0,
+    sup_stopped: bool = false,
+    sup_stop_reason: c.jzx_exit_reason = c.JZX_EXIT_NORMAL,
+};
+
+fn escalationOnSupervisorEscalate(ctx: ?*anyopaque, supervisor: c.jzx_actor_id) callconv(.c) void {
+    const state = @as(*EscalationObsState, @ptrCast(@alignCast(ctx.?)));
+    if (supervisor == state.sup_id) {
+        state.escalations += 1;
+    }
+}
+
+fn escalationOnActorStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exit_reason) callconv(.c) void {
+    const state = @as(*EscalationObsState, @ptrCast(@alignCast(ctx.?)));
+    if (id == state.sup_id) {
+        state.sup_stopped = true;
+        state.sup_stop_reason = reason;
+    }
+}
+
+const EscalationDriverState = struct {
+    sup_id: c.jzx_actor_id,
+    obs: *EscalationObsState,
+    last_child_id: c.jzx_actor_id = 0,
+    ticks: u32 = 0,
+    timed_out: bool = false,
+};
+
+fn escalationDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*EscalationDriverState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+
+    state.ticks += 1;
+    if (state.ticks > 5000) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    if (state.obs.escalations > 0 or state.obs.sup_stopped) {
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    var child_id: c.jzx_actor_id = 0;
+    const rc = c.jzx_supervisor_child_id(ctx_ptr.loop.?, state.sup_id, 0, &child_id);
+    if (rc == c.JZX_ERR_NO_SUCH_ACTOR) {
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    if (rc != c.JZX_OK) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    if (child_id != 0 and child_id != state.last_child_id) {
+        _ = c.jzx_send(ctx_ptr.loop.?, child_id, null, 0, 0);
+        state.last_child_id = child_id;
+    }
+
+    scheduleSelf(ctx_ptr.loop.?, ctx_ptr.self, 1);
+    return c.JZX_BEHAVIOR_OK;
 }
 
 test "supervisor escalates when intensity exceeded" {
@@ -650,28 +812,38 @@ test "supervisor escalates when intensity exceeded" {
     var sup_id: c.jzx_actor_id = 0;
     try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn_supervisor(loop.ptr, &sup_init, 0, &sup_id));
 
-    var child_id: c.jzx_actor_id = 0;
-    try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
-    try std.testing.expect(child_id != 0);
+    var obs_state = EscalationObsState{ .sup_id = sup_id };
+    var obs = c.jzx_observer{
+        .on_actor_start = null,
+        .on_actor_stop = escalationOnActorStop,
+        .on_actor_restart = null,
+        .on_supervisor_escalate = escalationOnSupervisorEscalate,
+        .on_mailbox_full = null,
+    };
+    c.jzx_loop_set_observer(loop.ptr, &obs, @ptrCast(&obs_state));
 
-    var runner = try std.Thread.spawn(.{}, struct {
-        fn run(lp: *jzx.Loop) void {
-            _ = lp.run() catch {};
-        }
-    }.run, .{&loop});
+    var driver_state = EscalationDriverState{
+        .sup_id = sup_id,
+        .obs = &obs_state,
+    };
+    var driver_opts = c.jzx_spawn_opts{
+        .behavior = escalationDriver,
+        .state = &driver_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var driver_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &driver_opts, &driver_id));
+    _ = c.jzx_send(loop.ptr, driver_id, null, 0, 0);
 
-    // Drive three failures to exceed intensity window.
-    for (0..3) |_| {
-        try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
-        try std.testing.expect(child_id != 0);
-        _ = c.jzx_send(loop.ptr, child_id, null, 0, 0);
-        std.Thread.sleep(10 * std.time.ns_per_ms);
-    }
+    try loop.run();
 
-    loop.requestStop();
-    runner.join();
-
-    try std.testing.expectEqual(@as(u32, 3), child_state.runs);
+    try std.testing.expectEqual(@as(u32, 1), obs_state.escalations);
+    try std.testing.expect(obs_state.sup_stopped);
+    try std.testing.expectEqual(@as(c.jzx_exit_reason, c.JZX_EXIT_FAIL), obs_state.sup_stop_reason);
+    try std.testing.expect(!driver_state.timed_out);
+    try std.testing.expect(child_state.runs >= 3);
 }
 
 const BackoffState = struct {
@@ -693,6 +865,52 @@ fn backoffRecorder(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callcon
     state.t2_ms = now_ms;
     c.jzx_loop_request_stop(ctx_ptr.loop.?);
     return c.JZX_BEHAVIOR_STOP;
+}
+
+const BackoffDriverState = struct {
+    sup_id: c.jzx_actor_id,
+    original_child_id: c.jzx_actor_id,
+    backoff_state: *BackoffState,
+    stage: u8 = 0,
+    ticks: u32 = 0,
+    timed_out: bool = false,
+};
+
+fn backoffDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*BackoffDriverState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+
+    state.ticks += 1;
+    if (state.ticks > 5000) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+    if (state.backoff_state.runs >= 2) {
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    var child_id: c.jzx_actor_id = 0;
+    if (c.jzx_supervisor_child_id(ctx_ptr.loop.?, state.sup_id, 0, &child_id) != c.JZX_OK) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    if (state.stage == 0) {
+        _ = c.jzx_send(ctx_ptr.loop.?, state.original_child_id, null, 0, 0);
+        state.stage = 1;
+    } else if (state.stage == 1) {
+        if (child_id != 0 and child_id != state.original_child_id) {
+            _ = c.jzx_send(ctx_ptr.loop.?, child_id, null, 0, 0);
+            state.stage = 2;
+        }
+    }
+
+    scheduleSelf(ctx_ptr.loop.?, ctx_ptr.self, 1);
+    return c.JZX_BEHAVIOR_OK;
 }
 
 test "supervisor backoff delays restart" {
@@ -726,30 +944,28 @@ test "supervisor backoff delays restart" {
     var child_id: c.jzx_actor_id = 0;
     try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
     try std.testing.expect(child_id != 0);
-    const original_child_id = child_id;
 
-    var runner = try std.Thread.spawn(.{}, struct {
-        fn run(lp: *jzx.Loop) void {
-            _ = lp.run() catch {};
-        }
-    }.run, .{&loop});
+    var driver_state = BackoffDriverState{
+        .sup_id = sup_id,
+        .original_child_id = child_id,
+        .backoff_state = &state,
+    };
+    var driver_opts = c.jzx_spawn_opts{
+        .behavior = backoffDriver,
+        .state = &driver_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var driver_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &driver_opts, &driver_id));
+    _ = c.jzx_send(loop.ptr, driver_id, null, 0, 0);
 
-    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, child_id, null, 0, 0));
-
-    // Wait for restart delay (50ms) then fetch new child id and send again.
-    var wait_attempts: u16 = 0;
-    while (wait_attempts < 100) : (wait_attempts += 1) {
-        try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
-        if (child_id != 0 and child_id != original_child_id) break;
-        std.Thread.sleep(10 * std.time.ns_per_ms);
-    }
-    try std.testing.expect(child_id != 0 and child_id != original_child_id);
-    try std.testing.expectEqual(c.JZX_OK, c.jzx_send(loop.ptr, child_id, null, 0, 0));
-
-    runner.join();
+    try loop.run();
 
     try std.testing.expectEqual(@as(u32, 2), state.runs);
     try std.testing.expect(state.t2_ms >= state.t1_ms + 50);
+    try std.testing.expect(!driver_state.timed_out);
 }
 
 fn backoffRecorderExp(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
@@ -799,35 +1015,27 @@ test "supervisor exponential backoff delays restart" {
     try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id));
     try std.testing.expect(child_id != 0);
 
-    var runner = try std.Thread.spawn(.{}, struct {
-        fn run(lp: *jzx.Loop) void {
-            _ = lp.run() catch {};
-        }
-    }.run, .{&loop});
+    var driver_state = BackoffDriverState{
+        .sup_id = sup_id,
+        .original_child_id = child_id,
+        .backoff_state = &state,
+    };
+    var driver_opts = c.jzx_spawn_opts{
+        .behavior = backoffDriver,
+        .state = &driver_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var driver_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &driver_opts, &driver_id));
+    _ = c.jzx_send(loop.ptr, driver_id, null, 0, 0);
 
-    // First run -> failure.
-    _ = c.jzx_send(loop.ptr, child_id, null, 0, 0);
-
-    // Allow restart (delay ~20ms * 2 due to exponential factor).
-    std.Thread.sleep(120 * std.time.ns_per_ms);
-    _ = c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &child_id);
-    try std.testing.expect(child_id != 0);
-
-    // Second run should stop after recording t2.
-    _ = c.jzx_send(loop.ptr, child_id, null, 0, 0);
-
-    var wait_attempts: u16 = 0;
-    while (wait_attempts < 50 and state.runs < 2) : (wait_attempts += 1) {
-        std.Thread.sleep(10 * std.time.ns_per_ms);
-    }
-    if (state.runs < 2) {
-        loop.requestStop();
-    }
-
-    runner.join();
+    try loop.run();
 
     try std.testing.expectEqual(@as(u32, 2), state.runs);
     try std.testing.expect(state.t2_ms >= state.t1_ms + 30);
+    try std.testing.expect(!driver_state.timed_out);
 }
 
 const DuoShared = struct {
@@ -858,6 +1066,55 @@ fn duoBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c
         c.jzx_loop_request_stop(ctx_ptr.loop.?);
         return c.JZX_BEHAVIOR_STOP;
     }
+}
+
+const OneForAllDriverState = struct {
+    sup_id: c.jzx_actor_id,
+    original_a: c.jzx_actor_id,
+    original_b: c.jzx_actor_id,
+    stage: u8 = 0,
+    observed_restart: bool = false,
+    ticks: u32 = 0,
+    timed_out: bool = false,
+};
+
+fn oneForAllDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*OneForAllDriverState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+
+    state.ticks += 1;
+    if (state.ticks > 5000) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    var id_a: c.jzx_actor_id = 0;
+    var id_b: c.jzx_actor_id = 0;
+    if (c.jzx_supervisor_child_id(ctx_ptr.loop.?, state.sup_id, 0, &id_a) != c.JZX_OK or
+        c.jzx_supervisor_child_id(ctx_ptr.loop.?, state.sup_id, 1, &id_b) != c.JZX_OK)
+    {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    if (state.stage == 0) {
+        _ = c.jzx_send(ctx_ptr.loop.?, state.original_a, null, 0, 0);
+        _ = c.jzx_send(ctx_ptr.loop.?, state.original_b, null, 0, 0);
+        state.stage = 1;
+    } else if (state.stage == 1) {
+        if (id_a != 0 and id_b != 0 and id_a != state.original_a and id_b != state.original_b) {
+            state.observed_restart = true;
+            _ = c.jzx_send(ctx_ptr.loop.?, id_a, null, 0, 0);
+            _ = c.jzx_send(ctx_ptr.loop.?, id_b, null, 0, 0);
+            state.stage = 2;
+        }
+    }
+
+    scheduleSelf(ctx_ptr.loop.?, ctx_ptr.self, 1);
+    return c.JZX_BEHAVIOR_OK;
 }
 
 test "supervisor one_for_all restarts all children" {
@@ -910,38 +1167,29 @@ test "supervisor one_for_all restarts all children" {
     try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, 1, &id_b));
     try std.testing.expect(id_a != 0);
     try std.testing.expect(id_b != 0);
-    const original_id_a = id_a;
-    const original_id_b = id_b;
 
-    var runner = try std.Thread.spawn(.{}, struct {
-        fn run(lp: *jzx.Loop) void {
-            _ = lp.run() catch {};
-        }
-    }.run, .{&loop});
+    var driver_state = OneForAllDriverState{
+        .sup_id = sup_id,
+        .original_a = id_a,
+        .original_b = id_b,
+    };
+    var driver_opts = c.jzx_spawn_opts{
+        .behavior = oneForAllDriver,
+        .state = &driver_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var driver_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &driver_opts, &driver_id));
+    _ = c.jzx_send(loop.ptr, driver_id, null, 0, 0);
 
-    // First round: start both, B fails.
-    _ = c.jzx_send(loop.ptr, id_a, null, 0, 0);
-    _ = c.jzx_send(loop.ptr, id_b, null, 0, 0);
-
-    // Wait for restart to occur and fetch new ids.
-    var wait_attempts: u16 = 0;
-    while (wait_attempts < 100) : (wait_attempts += 1) {
-        _ = c.jzx_supervisor_child_id(loop.ptr, sup_id, 0, &id_a);
-        _ = c.jzx_supervisor_child_id(loop.ptr, sup_id, 1, &id_b);
-        if (id_a != 0 and id_b != 0 and id_a != original_id_a and id_b != original_id_b) break;
-        std.Thread.sleep(5 * std.time.ns_per_ms);
-    }
-    try std.testing.expect(id_a != 0 and id_b != 0);
-    try std.testing.expect(id_a != original_id_a and id_b != original_id_b);
-
-    // Second round after restart.
-    _ = c.jzx_send(loop.ptr, id_a, null, 0, 0);
-    _ = c.jzx_send(loop.ptr, id_b, null, 0, 0);
-
-    runner.join();
+    try loop.run();
 
     try std.testing.expect(shared.runs_a >= 2);
     try std.testing.expect(shared.runs_b >= 2);
+    try std.testing.expect(driver_state.observed_restart);
+    try std.testing.expect(!driver_state.timed_out);
 }
 
 const TrioShared = struct {
@@ -962,9 +1210,6 @@ fn trioBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.
     switch (state.role) {
         .A => {
             state.shared.hits_a += 1;
-            if (state.shared.hits_a >= 2 and state.shared.hits_b >= 2 and state.shared.hits_c >= 2) {
-                c.jzx_loop_request_stop(ctx_ptr.loop.?);
-            }
             return c.JZX_BEHAVIOR_OK;
         },
         .B => {
@@ -973,12 +1218,67 @@ fn trioBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.
         },
         .C => {
             state.shared.hits_c += 1;
-            if (state.shared.hits_c >= 2 and state.shared.hits_a >= 2) {
-                c.jzx_loop_request_stop(ctx_ptr.loop.?);
-            }
             return c.JZX_BEHAVIOR_OK;
         },
     }
+}
+
+const RestForOneDriverState = struct {
+    sup_id: c.jzx_actor_id,
+    original_b: c.jzx_actor_id,
+    original_c: c.jzx_actor_id,
+    shared: *TrioShared,
+    stage: u8 = 0,
+    observed_restart: bool = false,
+    ticks: u32 = 0,
+    timed_out: bool = false,
+};
+
+fn restForOneDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
+    _ = msg;
+    const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
+    const state = @as(*RestForOneDriverState, @ptrCast(@alignCast(ctx_ptr.state.?)));
+
+    state.ticks += 1;
+    if (state.ticks > 5000) {
+        state.timed_out = true;
+        c.jzx_loop_request_stop(ctx_ptr.loop.?);
+        return c.JZX_BEHAVIOR_STOP;
+    }
+
+    var ids = [_]c.jzx_actor_id{0} ** 3;
+    for (&ids, 0..) |*idptr, idx| {
+        if (c.jzx_supervisor_child_id(ctx_ptr.loop.?, state.sup_id, idx, idptr) != c.JZX_OK) {
+            state.timed_out = true;
+            c.jzx_loop_request_stop(ctx_ptr.loop.?);
+            return c.JZX_BEHAVIOR_STOP;
+        }
+    }
+
+    if (state.stage == 0) {
+        _ = c.jzx_send(ctx_ptr.loop.?, ids[2], null, 0, 0);
+        _ = c.jzx_send(ctx_ptr.loop.?, ids[0], null, 0, 0);
+        _ = c.jzx_send(ctx_ptr.loop.?, ids[1], null, 0, 0);
+        state.stage = 1;
+    } else if (state.stage == 1) {
+        if (ids[1] != 0 and ids[2] != 0 and ids[1] != state.original_b and ids[2] != state.original_c) {
+            state.observed_restart = true;
+            _ = c.jzx_send(ctx_ptr.loop.?, ids[2], null, 0, 0);
+            _ = c.jzx_send(ctx_ptr.loop.?, ids[0], null, 0, 0);
+            _ = c.jzx_send(ctx_ptr.loop.?, ids[1], null, 0, 0);
+            state.stage = 2;
+        }
+    }
+
+    if (state.stage == 2) {
+        if (state.shared.hits_a >= 2 and state.shared.hits_b >= 2 and state.shared.hits_c >= 2) {
+            c.jzx_loop_request_stop(ctx_ptr.loop.?);
+            return c.JZX_BEHAVIOR_STOP;
+        }
+    }
+
+    scheduleSelf(ctx_ptr.loop.?, ctx_ptr.self, 1);
+    return c.JZX_BEHAVIOR_OK;
 }
 
 test "supervisor rest_for_one restarts downstream children" {
@@ -1015,44 +1315,29 @@ test "supervisor rest_for_one restarts downstream children" {
         try std.testing.expectEqual(c.JZX_OK, c.jzx_supervisor_child_id(loop.ptr, sup_id, idx, idptr));
         try std.testing.expect(idptr.* != 0);
     }
-    const original_ids = ids;
 
-    var runner = try std.Thread.spawn(.{}, struct {
-        fn run(lp: *jzx.Loop) void {
-            _ = lp.run() catch {};
-        }
-    }.run, .{&loop});
+    var driver_state = RestForOneDriverState{
+        .sup_id = sup_id,
+        .original_b = ids[1],
+        .original_c = ids[2],
+        .shared = &shared,
+    };
+    var driver_opts = c.jzx_spawn_opts{
+        .behavior = restForOneDriver,
+        .state = &driver_state,
+        .supervisor = 0,
+        .mailbox_cap = 0,
+        .name = null,
+    };
+    var driver_id: c.jzx_actor_id = 0;
+    try std.testing.expectEqual(c.JZX_OK, c.jzx_spawn(loop.ptr, &driver_opts, &driver_id));
+    _ = c.jzx_send(loop.ptr, driver_id, null, 0, 0);
 
-    // Initial messages to all three
-    for (ids) |idval| {
-        _ = c.jzx_send(loop.ptr, idval, null, 0, 0);
-    }
-
-    // Allow restarts to settle
-    var wait_attempts: u16 = 0;
-    while (wait_attempts < 100) : (wait_attempts += 1) {
-        for (&ids, 0..) |*idptr, idx| {
-            _ = c.jzx_supervisor_child_id(loop.ptr, sup_id, idx, idptr);
-        }
-        if (ids[1] != 0 and ids[2] != 0 and ids[1] != original_ids[1] and ids[2] != original_ids[2]) break;
-        std.Thread.sleep(5 * std.time.ns_per_ms);
-    }
-    // Second round after restart for B and C
-    for (ids) |idval| {
-        if (idval != 0) {
-            _ = c.jzx_send(loop.ptr, idval, null, 0, 0);
-        }
-    }
-
-    var attempts: u16 = 0;
-    while (attempts < 50 and !(shared.hits_a >= 2 and shared.hits_b >= 2 and shared.hits_c >= 2)) : (attempts += 1) {
-        std.Thread.sleep(10 * std.time.ns_per_ms);
-    }
-    loop.requestStop();
-
-    runner.join();
+    try loop.run();
 
     try std.testing.expect(shared.hits_a >= 2);
     try std.testing.expect(shared.hits_b >= 2);
     try std.testing.expect(shared.hits_c >= 2);
+    try std.testing.expect(driver_state.observed_restart);
+    try std.testing.expect(!driver_state.timed_out);
 }

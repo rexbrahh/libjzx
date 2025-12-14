@@ -1283,6 +1283,13 @@ void jzx_loop_request_stop(jzx_loop* loop) {
     }
 }
 
+void jzx_loop_free(jzx_loop* loop, void* ptr) {
+    if (!loop || !ptr) {
+        return;
+    }
+    jzx_free(&loop->allocator, ptr);
+}
+
 void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx) {
     if (!loop) {
         return;

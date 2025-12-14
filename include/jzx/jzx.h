@@ -157,6 +157,7 @@ jzx_loop* jzx_loop_create(const jzx_config* cfg);
 void jzx_loop_destroy(jzx_loop* loop);
 int jzx_loop_run(jzx_loop* loop);
 void jzx_loop_request_stop(jzx_loop* loop);
+void jzx_loop_free(jzx_loop* loop, void* ptr);
 
 typedef struct {
     void (*on_actor_start)(void* ctx, jzx_actor_id id, const char* name);

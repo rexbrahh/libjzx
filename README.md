@@ -62,6 +62,14 @@ The runtime exposes a lightweight `jzx_observer` callback table. Set it via `jzx
 
 See `docs/observability.md` for usage notes and how to interpret `zig build stress` output.
 
+### Timers
+
+- Design/usage notes: `docs/timers.md`
+
+### I/O
+
+- Design/usage notes: `docs/io.md`
+
 ### Nix + direnv dev shell
 
 The repo ships with a flake-based development shell. If you use [direnv](https://direnv.net/):

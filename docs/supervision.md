@@ -45,3 +45,8 @@ See `examples/zig/supervisor.zig` for a runnable sample mirroring the C example.
 - Permanent children always restart; transient restart only on failure; temporary never restart.
 - Intensity limit (intensity/period_ms) triggers supervisor failure and stops dependents.
 - Backoff: per-child setting wins; otherwise supervisor default. Constant adds `backoff_delay_ms * restart_count`; exponential doubles each attempt (saturating).
+
+### Timing notes
+
+- Restart intensity windows (`intensity/period_ms`) are tracked using a monotonic clock (`CLOCK_MONOTONIC`) so they are not affected by wall-clock adjustments.
+- Restart delays/backoff are scheduled via the timer subsystem (`jzx_send_after`), also based on monotonic time.
