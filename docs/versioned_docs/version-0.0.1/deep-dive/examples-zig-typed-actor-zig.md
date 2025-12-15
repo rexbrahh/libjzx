@@ -21,9 +21,16 @@ The wrapper builds a trampoline that:
 - calls your typed function,
 - maps `.ok/.stop/.fail` back into the C enum.
 
+## Cross-links
+
+- Run it: [Quickstart](../getting-started/quickstart#build-and-run-the-examples)
+- Type-safety layer: [Zig wrapper (`zig/jzx/lib.zig`)](zig-jzx-lib-zig)
+- Under the hood: [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h), [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+
 ## Imports
 
 <!-- snippet: examples/zig/typed_actor.zig#L1-L3 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/typed_actor.zig#L1-L3"><code>examples/zig/typed_actor.zig#L1-L3</code></a></div>
 ```zig title="Imports" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");
@@ -33,6 +40,7 @@ const c = jzx.c;
 ## Typed state and message
 
 <!-- snippet: examples/zig/typed_actor.zig#L5-L11 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/typed_actor.zig#L5-L11"><code>examples/zig/typed_actor.zig#L5-L11</code></a></div>
 ```zig title="State + message types" showLineNumbers=5
 const CounterState = struct {
     total: u32 = 0,
@@ -56,6 +64,7 @@ Why these are `struct`s:
 ## The typed behavior function
 
 <!-- snippet: examples/zig/typed_actor.zig#func=counterBehavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/typed_actor.zig#L13-L17"><code>examples/zig/typed_actor.zig#L13-L17</code></a></div>
 ```zig title="counterBehavior(): typed state + typed message" showLineNumbers=13
 fn counterBehavior(state: *CounterState, msg: *Message, ctx: jzx.ActorContext) jzx.BehaviorResult {
     _ = ctx;
@@ -80,6 +89,7 @@ Line-by-line intent:
 ## main(): spawn typed actor, send message, run
 
 <!-- snippet: examples/zig/typed_actor.zig#func=main -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/typed_actor.zig#L19-L38"><code>examples/zig/typed_actor.zig#L19-L38</code></a></div>
 ```zig title="main(): spawn and run" showLineNumbers=19
 pub fn main() !void {
     var loop = try jzx.Loop.create(null);
@@ -125,6 +135,7 @@ Deep explanation:
 ## Full listing (for reference)
 
 <!-- snippet: examples/zig/typed_actor.zig#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/typed_actor.zig#L1-L38"><code>examples/zig/typed_actor.zig#L1-L38</code></a></div>
 ```zig title="examples/zig/typed_actor.zig" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");

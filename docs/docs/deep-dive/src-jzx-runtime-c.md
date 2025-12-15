@@ -9,9 +9,18 @@ This file is the primary implementation of the libjzx runtime: actors, mailboxes
 
 Unlike a reference dump, this page is written in a “textbook” style: small snippets with the explanation immediately around them. The goal is to explain what each piece *is*, how it works, and why it exists.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- API + config surface: [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h), [Configuration reference](../reference/config-reference)
+- Internal structs: [Runtime internals (`src/jzx_internal.h`)](src-jzx-internal-h)
+- I/O backend: [libxev integration (`src/jzx_xev.zig`)](src-jzx-xev-zig)
+- Semantics in practice: [Integration tests](zig-tests-basic-zig), [Stress tool](tools-stress-zig)
+
 ## Includes and file-level structure
 
 <!-- snippet: src/jzx_runtime.c#L1-L9 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1-L9"><code>src/jzx_runtime.c#L1-L9</code></a></div>
 ```c title="Includes + file-level section markers" showLineNumbers=1
 #include "jzx_internal.h"
 
@@ -43,6 +52,7 @@ Those section headers are meant to be a reading guide: each section is a subsyst
 These helpers implement the runtime’s actor-id scheme: a `jzx_actor_id` is a 64-bit value that encodes **(generation, index)**.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_id_index -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L11-L13"><code>src/jzx_runtime.c#L11-L13</code></a></div>
 ```c title="jzx_id_index()" showLineNumbers=11
 static inline uint32_t jzx_id_index(jzx_actor_id id) {
     return (uint32_t)(id & 0xffffffffu);
@@ -53,6 +63,7 @@ static inline uint32_t jzx_id_index(jzx_actor_id id) {
 - Why it exists: fast lookup into `actors.slots[]`.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_id_generation -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L15-L17"><code>src/jzx_runtime.c#L15-L17</code></a></div>
 ```c title="jzx_id_generation()" showLineNumbers=15
 static inline uint32_t jzx_id_generation(jzx_actor_id id) {
     return (uint32_t)(id >> 32u);
@@ -63,6 +74,7 @@ static inline uint32_t jzx_id_generation(jzx_actor_id id) {
 - Why it exists: stale-id rejection when actor slots are reused.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_make_id -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L19-L21"><code>src/jzx_runtime.c#L19-L21</code></a></div>
 ```c title="jzx_make_id()" showLineNumbers=19
 static inline jzx_actor_id jzx_make_id(uint32_t gen, uint32_t idx) {
     return ((uint64_t)gen << 32u) | (uint64_t)idx;
@@ -77,6 +89,7 @@ static inline jzx_actor_id jzx_make_id(uint32_t gen, uint32_t idx) {
 The runtime always allocates through `jzx_allocator` so users can supply custom allocation strategies.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_alloc -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L23-L25"><code>src/jzx_runtime.c#L23-L25</code></a></div>
 ```c title="jzx_alloc()" showLineNumbers=23
 static void* jzx_alloc(jzx_allocator* alloc, size_t size) {
     return alloc->alloc ? alloc->alloc(alloc->ctx, size) : NULL;
@@ -89,6 +102,7 @@ Notes:
 - Returns `NULL` if no allocator is configured (or allocation fails).
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_free -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L27-L31"><code>src/jzx_runtime.c#L27-L31</code></a></div>
 ```c title="jzx_free()" showLineNumbers=27
 static void jzx_free(jzx_allocator* alloc, void* ptr) {
     if (alloc->free) {
@@ -109,6 +123,7 @@ Why wrappers exist: they concentrate “allocator optionality” into one place 
 The supervisor subsystem needs its own heap state (the configured child list and restart counters).
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_state_create -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L33-L62"><code>src/jzx_runtime.c#L33-L62</code></a></div>
 ```c title="jzx_supervisor_state_create()" showLineNumbers=33
 static jzx_supervisor_state* jzx_supervisor_state_create(const jzx_supervisor_init* init,
                                                          jzx_allocator* allocator) {
@@ -153,6 +168,7 @@ Ownership note:
 - The supervisor state owns `children` and must free it on teardown.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_state_destroy -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L64-L71"><code>src/jzx_runtime.c#L64-L71</code></a></div>
 ```c title="jzx_supervisor_state_destroy()" showLineNumbers=64
 static void jzx_supervisor_state_destroy(jzx_supervisor_state* state, jzx_allocator* allocator) {
     if (!state)
@@ -167,6 +183,7 @@ static void jzx_supervisor_state_destroy(jzx_supervisor_state* state, jzx_alloca
 This is the ownership inverse of `create`: free the children array, then free the state.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_allow_restart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L73-L89"><code>src/jzx_runtime.c#L73-L89</code></a></div>
 ```c title="jzx_supervisor_allow_restart()" showLineNumbers=73
 static int jzx_supervisor_allow_restart(jzx_supervisor_state* sup, uint64_t now_ms) {
     if (!sup)
@@ -198,6 +215,7 @@ Why it exists: without intensity limits, a crash loop could saturate CPU and sta
 ### Time and saturating math helpers
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_now_ms -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L91-L95"><code>src/jzx_runtime.c#L91-L95</code></a></div>
 ```c title="jzx_now_ms()" showLineNumbers=91
 static uint64_t jzx_now_ms(void) {
     struct timespec ts;
@@ -210,6 +228,7 @@ static uint64_t jzx_now_ms(void) {
 - Returns milliseconds for timer scheduling and intensity windows.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_sat_add32 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L97-L103"><code>src/jzx_runtime.c#L97-L103</code></a></div>
 ```c title="jzx_sat_add32()" showLineNumbers=97
 static uint32_t jzx_sat_add32(uint32_t a, uint32_t b) {
     uint64_t sum = (uint64_t)a + (uint64_t)b;
@@ -223,6 +242,7 @@ static uint32_t jzx_sat_add32(uint32_t a, uint32_t b) {
 Saturating add prevents overflow when computing delays or budgets.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_sat_mul32 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L105-L113"><code>src/jzx_runtime.c#L105-L113</code></a></div>
 ```c title="jzx_sat_mul32()" showLineNumbers=105
 static uint32_t jzx_sat_mul32(uint32_t a, uint32_t b) {
     if (a == 0 || b == 0)
@@ -243,6 +263,7 @@ This file is written top-to-bottom, but a few subsystems need to reference helpe
 Instead of reordering everything, `jzx_runtime.c` uses file-local forward declarations.
 
 <!-- snippet: src/jzx_runtime.c#L115-L122 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L115-L122"><code>src/jzx_runtime.c#L115-L122</code></a></div>
 ```c title="Forward declarations + section boundary" showLineNumbers=115
 static jzx_err jzx_send_internal(jzx_loop* loop, jzx_actor_id target, void* data, size_t len,
                                  uint32_t tag, jzx_actor_id sender);
@@ -265,6 +286,7 @@ Why these exist:
 ## Wakeup helpers (event loop notification)
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_wakeup_signal -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L124-L129"><code>src/jzx_runtime.c#L124-L129</code></a></div>
 ```c title="jzx_wakeup_signal()" showLineNumbers=124
 static void jzx_wakeup_signal(jzx_loop* loop) {
     if (!loop || !loop->xev) {
@@ -279,6 +301,7 @@ This is how the runtime wakes the backend event loop when something arrives from
 ## Observer helpers (instrumentation)
 
 <!-- snippet: src/jzx_runtime.c#L131-L133 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L131-L133"><code>src/jzx_runtime.c#L131-L133</code></a></div>
 ```c title="Section: observer helpers" showLineNumbers=131
 // -----------------------------------------------------------------------------
 // Observer helpers
@@ -288,6 +311,7 @@ This is how the runtime wakes the backend event loop when something arrives from
 These helpers are “safe callouts”: they check for null hooks and then forward the event.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_obs_actor_start -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L135-L139"><code>src/jzx_runtime.c#L135-L139</code></a></div>
 ```c title="jzx_obs_actor_start()" showLineNumbers=135
 static void jzx_obs_actor_start(jzx_loop* loop, jzx_actor_id id, const char* name) {
     if (loop && loop->observer.on_actor_start) {
@@ -297,6 +321,7 @@ static void jzx_obs_actor_start(jzx_loop* loop, jzx_actor_id id, const char* nam
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_obs_actor_stop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L141-L145"><code>src/jzx_runtime.c#L141-L145</code></a></div>
 ```c title="jzx_obs_actor_stop()" showLineNumbers=141
 static void jzx_obs_actor_stop(jzx_loop* loop, jzx_actor_id id, jzx_exit_reason reason) {
     if (loop && loop->observer.on_actor_stop) {
@@ -306,6 +331,7 @@ static void jzx_obs_actor_stop(jzx_loop* loop, jzx_actor_id id, jzx_exit_reason 
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_obs_actor_restart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L147-L152"><code>src/jzx_runtime.c#L147-L152</code></a></div>
 ```c title="jzx_obs_actor_restart()" showLineNumbers=147
 static void jzx_obs_actor_restart(jzx_loop* loop, jzx_actor_id supervisor, jzx_actor_id child,
                                   uint32_t attempt) {
@@ -316,6 +342,7 @@ static void jzx_obs_actor_restart(jzx_loop* loop, jzx_actor_id supervisor, jzx_a
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_obs_supervisor_escalate -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L154-L158"><code>src/jzx_runtime.c#L154-L158</code></a></div>
 ```c title="jzx_obs_supervisor_escalate()" showLineNumbers=154
 static void jzx_obs_supervisor_escalate(jzx_loop* loop, jzx_actor_id supervisor) {
     if (loop && loop->observer.on_supervisor_escalate) {
@@ -325,6 +352,7 @@ static void jzx_obs_supervisor_escalate(jzx_loop* loop, jzx_actor_id supervisor)
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_obs_mailbox_full -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L160-L164"><code>src/jzx_runtime.c#L160-L164</code></a></div>
 ```c title="jzx_obs_mailbox_full()" showLineNumbers=160
 static void jzx_obs_mailbox_full(jzx_loop* loop, jzx_actor_id target) {
     if (loop && loop->observer.on_mailbox_full) {
@@ -338,6 +366,7 @@ Why these exist: to keep observer checks consistent and to keep the core logic r
 ## Mailbox implementation (bounded per-actor queue)
 
 <!-- snippet: src/jzx_runtime.c#L166-L168 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L166-L168"><code>src/jzx_runtime.c#L166-L168</code></a></div>
 ```c title="Section: mailbox implementation" showLineNumbers=166
 // -----------------------------------------------------------------------------
 // Mailbox implementation
@@ -345,6 +374,7 @@ Why these exist: to keep observer checks consistent and to keep the core logic r
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_mailbox_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L170-L187"><code>src/jzx_runtime.c#L170-L187</code></a></div>
 ```c title="jzx_mailbox_init()" showLineNumbers=170
 static jzx_err jzx_mailbox_init(jzx_mailbox_impl* box, uint32_t capacity,
                                 jzx_allocator* allocator) {
@@ -373,6 +403,7 @@ Notes:
 - Initializes head/tail/count to empty.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_mailbox_deinit -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L189-L194"><code>src/jzx_runtime.c#L189-L194</code></a></div>
 ```c title="jzx_mailbox_deinit()" showLineNumbers=189
 static void jzx_mailbox_deinit(jzx_mailbox_impl* box, jzx_allocator* allocator) {
     if (box->buffer) {
@@ -383,6 +414,7 @@ static void jzx_mailbox_deinit(jzx_mailbox_impl* box, jzx_allocator* allocator) 
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_mailbox_push -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L196-L204"><code>src/jzx_runtime.c#L196-L204</code></a></div>
 ```c title="jzx_mailbox_push()" showLineNumbers=196
 static int jzx_mailbox_push(jzx_mailbox_impl* box, const jzx_message* msg) {
     if (box->count == box->capacity) {
@@ -400,6 +432,7 @@ This is the backpressure point:
 - If `count == capacity`, it returns `-1` (caller maps to `JZX_ERR_MAILBOX_FULL`).
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_mailbox_pop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L206-L214"><code>src/jzx_runtime.c#L206-L214</code></a></div>
 ```c title="jzx_mailbox_pop()" showLineNumbers=206
 static int jzx_mailbox_pop(jzx_mailbox_impl* box, jzx_message* out) {
     if (box->count == 0) {
@@ -413,6 +446,7 @@ static int jzx_mailbox_pop(jzx_mailbox_impl* box, jzx_message* out) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_mailbox_has_items -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L216-L218"><code>src/jzx_runtime.c#L216-L218</code></a></div>
 ```c title="jzx_mailbox_has_items()" showLineNumbers=216
 static int jzx_mailbox_has_items(const jzx_mailbox_impl* box) {
     return box->count > 0;
@@ -422,6 +456,7 @@ static int jzx_mailbox_has_items(const jzx_mailbox_impl* box) {
 ## Actor table (id → actor pointer with generations)
 
 <!-- snippet: src/jzx_runtime.c#L220-L222 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L220-L222"><code>src/jzx_runtime.c#L220-L222</code></a></div>
 ```c title="Section: actor table implementation" showLineNumbers=220
 // -----------------------------------------------------------------------------
 // Actor table implementation
@@ -429,6 +464,7 @@ static int jzx_mailbox_has_items(const jzx_mailbox_impl* box) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_table_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L224-L247"><code>src/jzx_runtime.c#L224-L247</code></a></div>
 ```c title="jzx_actor_table_init()" showLineNumbers=224
 static jzx_err jzx_actor_table_init(jzx_actor_table* table, uint32_t capacity,
                                     jzx_allocator* allocator) {
@@ -457,6 +493,7 @@ static jzx_err jzx_actor_table_init(jzx_actor_table* table, uint32_t capacity,
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_table_deinit -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L249-L263"><code>src/jzx_runtime.c#L249-L263</code></a></div>
 ```c title="jzx_actor_table_deinit()" showLineNumbers=249
 static void jzx_actor_table_deinit(jzx_actor_table* table, jzx_allocator* allocator) {
     if (!table) {
@@ -476,6 +513,7 @@ static void jzx_actor_table_deinit(jzx_actor_table* table, jzx_allocator* alloca
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_table_lookup -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L265-L274"><code>src/jzx_runtime.c#L265-L274</code></a></div>
 ```c title="jzx_actor_table_lookup()" showLineNumbers=265
 static jzx_actor* jzx_actor_table_lookup(jzx_actor_table* table, jzx_actor_id id) {
     uint32_t idx = jzx_id_index(id);
@@ -494,6 +532,7 @@ This function is the critical stale-id guard:
 - It rejects ids whose generation doesn’t match the current slot generation.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_table_insert -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L276-L291"><code>src/jzx_runtime.c#L276-L291</code></a></div>
 ```c title="jzx_actor_table_insert()" showLineNumbers=276
 static jzx_err jzx_actor_table_insert(jzx_actor_table* table, jzx_actor* actor,
                                       jzx_allocator* allocator, jzx_actor_id* out_id) {
@@ -514,6 +553,7 @@ static jzx_err jzx_actor_table_insert(jzx_actor_table* table, jzx_actor* actor,
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_table_remove -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L293-L310"><code>src/jzx_runtime.c#L293-L310</code></a></div>
 ```c title="jzx_actor_table_remove()" showLineNumbers=293
 static void jzx_actor_table_remove(jzx_actor_table* table, jzx_actor* actor) {
     if (!actor) {
@@ -538,6 +578,7 @@ static void jzx_actor_table_remove(jzx_actor_table* table, jzx_actor* actor) {
 ## Run queue (who runs next)
 
 <!-- snippet: src/jzx_runtime.c#L312-L314 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L312-L314"><code>src/jzx_runtime.c#L312-L314</code></a></div>
 ```c title="Section: run queue implementation" showLineNumbers=312
 // -----------------------------------------------------------------------------
 // Run queue implementation
@@ -545,6 +586,7 @@ static void jzx_actor_table_remove(jzx_actor_table* table, jzx_actor* actor) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_run_queue_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L316-L325"><code>src/jzx_runtime.c#L316-L325</code></a></div>
 ```c title="jzx_run_queue_init()" showLineNumbers=316
 static jzx_err jzx_run_queue_init(jzx_run_queue* rq, uint32_t capacity, jzx_allocator* allocator) {
     memset(rq, 0, sizeof(*rq));
@@ -559,6 +601,7 @@ static jzx_err jzx_run_queue_init(jzx_run_queue* rq, uint32_t capacity, jzx_allo
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_run_queue_deinit -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L327-L332"><code>src/jzx_runtime.c#L327-L332</code></a></div>
 ```c title="jzx_run_queue_deinit()" showLineNumbers=327
 static void jzx_run_queue_deinit(jzx_run_queue* rq, jzx_allocator* allocator) {
     if (rq->entries) {
@@ -569,6 +612,7 @@ static void jzx_run_queue_deinit(jzx_run_queue* rq, jzx_allocator* allocator) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_run_queue_push -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L334-L342"><code>src/jzx_runtime.c#L334-L342</code></a></div>
 ```c title="jzx_run_queue_push()" showLineNumbers=334
 static int jzx_run_queue_push(jzx_run_queue* rq, jzx_actor* actor) {
     if (rq->count == rq->capacity) {
@@ -582,6 +626,7 @@ static int jzx_run_queue_push(jzx_run_queue* rq, jzx_actor* actor) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_run_queue_pop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L344-L353"><code>src/jzx_runtime.c#L344-L353</code></a></div>
 ```c title="jzx_run_queue_pop()" showLineNumbers=344
 static jzx_actor* jzx_run_queue_pop(jzx_run_queue* rq) {
     if (rq->count == 0) {
@@ -596,6 +641,7 @@ static jzx_actor* jzx_run_queue_pop(jzx_run_queue* rq) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_schedule_actor -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L355-L362"><code>src/jzx_runtime.c#L355-L362</code></a></div>
 ```c title="jzx_schedule_actor()" showLineNumbers=355
 static void jzx_schedule_actor(jzx_loop* loop, jzx_actor* actor) {
     if (!actor || actor->in_run_queue) {
@@ -612,6 +658,7 @@ This is the scheduler’s “make runnable” operation. It ensures a runnable a
 ## Actor teardown (resource cleanup)
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_teardown_actor -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L364-L392"><code>src/jzx_runtime.c#L364-L392</code></a></div>
 ```c title="jzx_teardown_actor()" showLineNumbers=364
 static void jzx_teardown_actor(jzx_loop* loop, jzx_actor* actor) {
     if (!actor) {
@@ -654,6 +701,7 @@ This function owns the “stop means free” contract:
 ## Supervision logic (restart strategies)
 
 <!-- snippet: src/jzx_runtime.c#L394-L396 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L394-L396"><code>src/jzx_runtime.c#L394-L396</code></a></div>
 ```c title="Section: supervisor helpers" showLineNumbers=394
 // -----------------------------------------------------------------------------
 // Supervisor helpers
@@ -661,6 +709,7 @@ This function owns the “stop means free” contract:
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_find_child -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L398-L411"><code>src/jzx_runtime.c#L398-L411</code></a></div>
 ```c title="jzx_supervisor_find_child()" showLineNumbers=398
 static jzx_child_state* jzx_supervisor_find_child(jzx_supervisor_state* sup, jzx_actor_id id,
                                                   size_t* out_idx) {
@@ -679,6 +728,7 @@ static jzx_child_state* jzx_supervisor_find_child(jzx_supervisor_state* sup, jzx
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_spawn_child -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L413-L424"><code>src/jzx_runtime.c#L413-L424</code></a></div>
 ```c title="jzx_supervisor_spawn_child()" showLineNumbers=413
 static jzx_err jzx_supervisor_spawn_child(jzx_loop* loop, jzx_actor_id supervisor_id,
                                           jzx_child_state* child) {
@@ -695,6 +745,7 @@ static jzx_err jzx_supervisor_spawn_child(jzx_loop* loop, jzx_actor_id superviso
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_stop_child -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L426-L431"><code>src/jzx_runtime.c#L426-L431</code></a></div>
 ```c title="jzx_supervisor_stop_child()" showLineNumbers=426
 static void jzx_supervisor_stop_child(jzx_loop* loop, jzx_child_state* child) {
     if (child->id != 0) {
@@ -705,6 +756,7 @@ static void jzx_supervisor_stop_child(jzx_loop* loop, jzx_child_state* child) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_schedule_restart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L433-L452"><code>src/jzx_runtime.c#L433-L452</code></a></div>
 ```c title="jzx_supervisor_schedule_restart()" showLineNumbers=433
 static void jzx_supervisor_schedule_restart(jzx_loop* loop, jzx_actor* sup_actor, size_t child_idx,
                                             uint32_t delay_ms) {
@@ -731,6 +783,7 @@ static void jzx_supervisor_schedule_restart(jzx_loop* loop, jzx_actor* sup_actor
 This typically schedules a system message/timer that triggers the actual restart later.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_compute_delay -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L454-L484"><code>src/jzx_runtime.c#L454-L484</code></a></div>
 ```c title="jzx_supervisor_compute_delay()" showLineNumbers=454
 static uint32_t jzx_supervisor_compute_delay(const jzx_supervisor_state* sup,
                                              const jzx_child_state* child) {
@@ -772,6 +825,7 @@ This computes the restart delay based on:
 - saturating arithmetic to avoid overflow
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_restart_strategy -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L486-L544"><code>src/jzx_runtime.c#L486-L544</code></a></div>
 ```c title="jzx_supervisor_restart_strategy()" showLineNumbers=486
 static void jzx_supervisor_restart_strategy(jzx_loop* loop, jzx_actor* supervisor_actor,
                                             size_t failed_idx, jzx_actor_id failed_child_id,
@@ -837,6 +891,7 @@ static void jzx_supervisor_restart_strategy(jzx_loop* loop, jzx_actor* superviso
 This applies the configured strategy (one-for-one, one-for-all, rest-for-one).
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L546-L606"><code>src/jzx_runtime.c#L546-L606</code></a></div>
 ```c title="jzx_supervisor_behavior()" showLineNumbers=546
 static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_message* msg) {
     jzx_actor* sup_actor = jzx_actor_table_lookup(&ctx->loop->actors, ctx->self);
@@ -906,6 +961,7 @@ Supervisor actors are just actors with a special behavior: they react to system 
 ## Async queue (`jzx_send_async`)
 
 <!-- snippet: src/jzx_runtime.c#L608-L610 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L608-L610"><code>src/jzx_runtime.c#L608-L610</code></a></div>
 ```c title="Section: async queue" showLineNumbers=608
 // -----------------------------------------------------------------------------
 // Async queue
@@ -913,6 +969,7 @@ Supervisor actors are just actors with a special behavior: they react to system 
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_queue_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L612-L620"><code>src/jzx_runtime.c#L612-L620</code></a></div>
 ```c title="jzx_async_queue_init()" showLineNumbers=612
 static jzx_err jzx_async_queue_init(jzx_loop* loop) {
     if (pthread_mutex_init(&loop->async_mutex, NULL) != 0) {
@@ -926,6 +983,7 @@ static jzx_err jzx_async_queue_init(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_queue_destroy -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L622-L638"><code>src/jzx_runtime.c#L622-L638</code></a></div>
 ```c title="jzx_async_queue_destroy()" showLineNumbers=622
 static void jzx_async_queue_destroy(jzx_loop* loop) {
     if (!loop->async_mutex_initialized) {
@@ -947,6 +1005,7 @@ static void jzx_async_queue_destroy(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_enqueue -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L640-L667"><code>src/jzx_runtime.c#L640-L667</code></a></div>
 ```c title="jzx_async_enqueue()" showLineNumbers=640
 static jzx_err jzx_async_enqueue(jzx_loop* loop, jzx_actor_id target, void* data, size_t len,
                                  uint32_t tag, jzx_actor_id sender) {
@@ -983,6 +1042,7 @@ This is the cross-thread enqueue point.
 Important: the runtime does not copy the payload; it stores the pointer.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_detach -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L669-L679"><code>src/jzx_runtime.c#L669-L679</code></a></div>
 ```c title="jzx_async_detach()" showLineNumbers=669
 static jzx_async_msg* jzx_async_detach(jzx_loop* loop) {
     if (!loop->async_mutex_initialized) {
@@ -1000,6 +1060,7 @@ static jzx_async_msg* jzx_async_detach(jzx_loop* loop) {
 Detaches the list under the mutex so the loop thread can process without holding the lock.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_dispatch -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L681-L689"><code>src/jzx_runtime.c#L681-L689</code></a></div>
 ```c title="jzx_async_dispatch()" showLineNumbers=681
 static void jzx_async_dispatch(jzx_loop* loop, jzx_async_msg* head) {
     jzx_async_msg* msg = head;
@@ -1015,6 +1076,7 @@ static void jzx_async_dispatch(jzx_loop* loop, jzx_async_msg* head) {
 Delivers detached async messages by converting them into normal mailbox enqueues.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_drain -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L691-L696"><code>src/jzx_runtime.c#L691-L696</code></a></div>
 ```c title="jzx_async_drain()" showLineNumbers=691
 static void jzx_async_drain(jzx_loop* loop) {
     jzx_async_msg* head = jzx_async_detach(loop);
@@ -1025,6 +1087,7 @@ static void jzx_async_drain(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_async_has_pending -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L698-L706"><code>src/jzx_runtime.c#L698-L706</code></a></div>
 ```c title="jzx_async_has_pending()" showLineNumbers=698
 static int jzx_async_has_pending(jzx_loop* loop) {
     if (!loop->async_mutex_initialized) {
@@ -1040,6 +1103,7 @@ static int jzx_async_has_pending(jzx_loop* loop) {
 ## Timer system (timer thread + due list)
 
 <!-- snippet: src/jzx_runtime.c#L708-L710 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L708-L710"><code>src/jzx_runtime.c#L708-L710</code></a></div>
 ```c title="Section: timer system" showLineNumbers=708
 // -----------------------------------------------------------------------------
 // Timer system
@@ -1047,6 +1111,7 @@ static int jzx_async_has_pending(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_timer_insert_locked -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L712-L724"><code>src/jzx_runtime.c#L712-L724</code></a></div>
 ```c title="jzx_timer_insert_locked()" showLineNumbers=712
 static void jzx_timer_insert_locked(jzx_loop* loop, jzx_timer_entry* entry) {
     if (!loop->timer_head || entry->due_ms < loop->timer_head->due_ms) {
@@ -1064,6 +1129,7 @@ static void jzx_timer_insert_locked(jzx_loop* loop, jzx_timer_entry* entry) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_timer_thread_main -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L726-L769"><code>src/jzx_runtime.c#L726-L769</code></a></div>
 ```c title="jzx_timer_thread_main()" showLineNumbers=726
 static void* jzx_timer_thread_main(void* arg) {
     jzx_loop* loop = (jzx_loop*)arg;
@@ -1114,6 +1180,7 @@ static void* jzx_timer_thread_main(void* arg) {
 This is the timer thread loop: wait until next due timer, then enqueue wakeups/deliveries.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_timer_system_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L771-L812"><code>src/jzx_runtime.c#L771-L812</code></a></div>
 ```c title="jzx_timer_system_init()" showLineNumbers=771
 static jzx_err jzx_timer_system_init(jzx_loop* loop) {
     if (pthread_mutex_init(&loop->timer_mutex, NULL) != 0) {
@@ -1160,6 +1227,7 @@ static jzx_err jzx_timer_system_init(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_timer_system_shutdown -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L814-L842"><code>src/jzx_runtime.c#L814-L842</code></a></div>
 ```c title="jzx_timer_system_shutdown()" showLineNumbers=814
 static void jzx_timer_system_shutdown(jzx_loop* loop) {
     if (!loop->timer_mutex_initialized) {
@@ -1193,6 +1261,7 @@ static void jzx_timer_system_shutdown(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_timer_has_pending -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L844-L852"><code>src/jzx_runtime.c#L844-L852</code></a></div>
 ```c title="jzx_timer_has_pending()" showLineNumbers=844
 static int jzx_timer_has_pending(jzx_loop* loop) {
     if (!loop->timer_mutex_initialized) {
@@ -1208,6 +1277,7 @@ static int jzx_timer_has_pending(jzx_loop* loop) {
 ## I/O watchers (fd table + backend registration)
 
 <!-- snippet: src/jzx_runtime.c#L854-L856 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L854-L856"><code>src/jzx_runtime.c#L854-L856</code></a></div>
 ```c title="Section: I/O watchers" showLineNumbers=854
 // -----------------------------------------------------------------------------
 // I O watchers
@@ -1215,6 +1285,7 @@ static int jzx_timer_has_pending(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L858-L868"><code>src/jzx_runtime.c#L858-L868</code></a></div>
 ```c title="jzx_io_init()" showLineNumbers=858
 static jzx_err jzx_io_init(jzx_loop* loop, uint32_t capacity) {
     loop->io_capacity = capacity ? capacity : 1;
@@ -1230,6 +1301,7 @@ static jzx_err jzx_io_init(jzx_loop* loop, uint32_t capacity) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_deinit -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L870-L877"><code>src/jzx_runtime.c#L870-L877</code></a></div>
 ```c title="jzx_io_deinit()" showLineNumbers=870
 static void jzx_io_deinit(jzx_loop* loop) {
     if (loop->io_watchers) {
@@ -1242,6 +1314,7 @@ static void jzx_io_deinit(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_reserve -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L879-L893"><code>src/jzx_runtime.c#L879-L893</code></a></div>
 ```c title="jzx_io_reserve()" showLineNumbers=879
 static jzx_err jzx_io_reserve(jzx_loop* loop, uint32_t new_cap) {
     jzx_io_watch* new_watchers =
@@ -1261,6 +1334,7 @@ static jzx_err jzx_io_reserve(jzx_loop* loop, uint32_t new_cap) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_find -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L895-L905"><code>src/jzx_runtime.c#L895-L905</code></a></div>
 ```c title="jzx_io_find()" showLineNumbers=895
 static jzx_io_watch* jzx_io_find(jzx_loop* loop, int fd, uint32_t* idx_out) {
     for (uint32_t i = 0; i < loop->io_count; ++i) {
@@ -1276,6 +1350,7 @@ static jzx_io_watch* jzx_io_find(jzx_loop* loop, int fd, uint32_t* idx_out) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_remove_index -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L907-L919"><code>src/jzx_runtime.c#L907-L919</code></a></div>
 ```c title="jzx_io_remove_index()" showLineNumbers=907
 static void jzx_io_remove_index(jzx_loop* loop, uint32_t idx) {
     if (idx >= loop->io_count) {
@@ -1293,6 +1368,7 @@ static void jzx_io_remove_index(jzx_loop* loop, uint32_t idx) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_remove_actor -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L921-L929"><code>src/jzx_runtime.c#L921-L929</code></a></div>
 ```c title="jzx_io_remove_actor()" showLineNumbers=921
 static void jzx_io_remove_actor(jzx_loop* loop, jzx_actor_id actor) {
     for (uint32_t i = 0; i < loop->io_count;) {
@@ -1311,6 +1387,7 @@ The `src/jzx_xev.zig` layer needs a single, C-callable “upcall” into the run
 That is what `jzx_io_xev_notify` is for.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_io_xev_notify -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L931-L958"><code>src/jzx_runtime.c#L931-L958</code></a></div>
 ```c title="jzx_io_xev_notify(): deliver readiness as a system message" showLineNumbers=931
 uint8_t jzx_io_xev_notify(jzx_loop* loop, int fd, uint32_t readiness) {
     if (!loop || !loop->running || fd < 0 || readiness == 0) {
@@ -1362,6 +1439,7 @@ The return value is intentionally small and lossy:
 If the caller doesn’t provide a custom allocator, libjzx uses `malloc`/`free`.
 
 <!-- snippet: src/jzx_runtime.c#L960-L972 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L960-L972"><code>src/jzx_runtime.c#L960-L972</code></a></div>
 ```c title="Config helpers: default allocator" showLineNumbers=960
 // -----------------------------------------------------------------------------
 // Config helpers
@@ -1384,6 +1462,7 @@ Why this is written this way:
 - The default implementation ignores `ctx` and forwards to the platform heap.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_config_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L974-L988"><code>src/jzx_runtime.c#L974-L988</code></a></div>
 ```c title="jzx_config_init()" showLineNumbers=974
 void jzx_config_init(jzx_config* cfg) {
     if (!cfg) {
@@ -1410,6 +1489,7 @@ void jzx_config_init(jzx_config* cfg) {
 `apply_defaults` is the guardrail that turns “some fields set to 0” into “reasonable default values”.
 
 <!-- snippet: src/jzx_runtime.c#func=apply_defaults -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L990-L1015"><code>src/jzx_runtime.c#L990-L1015</code></a></div>
 ```c title="apply_defaults(): fill in missing config values" showLineNumbers=990
 static void apply_defaults(jzx_config* cfg) {
     if (!cfg->allocator.alloc) {
@@ -1445,6 +1525,7 @@ Why this exists:
 - It makes `0` mean “use default” for most numeric config fields, which keeps the API ergonomic.
 
 <!-- snippet: src/jzx_runtime.c#L1017-L1019 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1017-L1019"><code>src/jzx_runtime.c#L1017-L1019</code></a></div>
 ```c title="Section: loop lifecycle" showLineNumbers=1017
 // -----------------------------------------------------------------------------
 // Loop lifecycle
@@ -1452,6 +1533,7 @@ Why this exists:
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_loop_create -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1021-L1066"><code>src/jzx_runtime.c#L1021-L1066</code></a></div>
 ```c title="jzx_loop_create()" showLineNumbers=1021
 jzx_loop* jzx_loop_create(const jzx_config* cfg) {
     jzx_config local;
@@ -1502,6 +1584,7 @@ jzx_loop* jzx_loop_create(const jzx_config* cfg) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_loop_destroy -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1068-L1090"><code>src/jzx_runtime.c#L1068-L1090</code></a></div>
 ```c title="jzx_loop_destroy()" showLineNumbers=1068
 void jzx_loop_destroy(jzx_loop* loop) {
     if (!loop) {
@@ -1529,6 +1612,7 @@ void jzx_loop_destroy(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_loop_run -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1092-L1162"><code>src/jzx_runtime.c#L1092-L1162</code></a></div>
 ```c title="jzx_loop_run()" showLineNumbers=1092
 int jzx_loop_run(jzx_loop* loop) {
     if (!loop) {
@@ -1606,6 +1690,7 @@ int jzx_loop_run(jzx_loop* loop) {
 This is the main event loop: it runs ready actors up to configured budgets and integrates I/O + timers + async sends.
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_loop_request_stop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1164-L1175"><code>src/jzx_runtime.c#L1164-L1175</code></a></div>
 ```c title="jzx_loop_request_stop()" showLineNumbers=1164
 void jzx_loop_request_stop(jzx_loop* loop) {
     if (!loop) {
@@ -1622,6 +1707,7 @@ void jzx_loop_request_stop(jzx_loop* loop) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_loop_free -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1177-L1182"><code>src/jzx_runtime.c#L1177-L1182</code></a></div>
 ```c title="jzx_loop_free()" showLineNumbers=1177
 void jzx_loop_free(jzx_loop* loop, void* ptr) {
     if (!loop || !ptr) {
@@ -1632,6 +1718,7 @@ void jzx_loop_free(jzx_loop* loop, void* ptr) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_loop_set_observer -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1184-L1195"><code>src/jzx_runtime.c#L1184-L1195</code></a></div>
 ```c title="jzx_loop_set_observer()" showLineNumbers=1184
 void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx) {
     if (!loop) {
@@ -1650,6 +1737,7 @@ void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx) {
 ## Actor APIs (spawn/send/stop/fail)
 
 <!-- snippet: src/jzx_runtime.c#L1197-L1199 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1197-L1199"><code>src/jzx_runtime.c#L1197-L1199</code></a></div>
 ```c title="Section: actor APIs" showLineNumbers=1197
 // -----------------------------------------------------------------------------
 // Actor APIs
@@ -1657,6 +1745,7 @@ void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_create -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1201-L1218"><code>src/jzx_runtime.c#L1201-L1218</code></a></div>
 ```c title="jzx_actor_create() (internal helper)" showLineNumbers=1201
 static jzx_actor* jzx_actor_create(jzx_loop* loop, const jzx_spawn_opts* opts) {
     jzx_actor* actor = (jzx_actor*)jzx_alloc(&loop->allocator, sizeof(jzx_actor));
@@ -1679,6 +1768,7 @@ static jzx_actor* jzx_actor_create(jzx_loop* loop, const jzx_spawn_opts* opts) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_spawn -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1220-L1236"><code>src/jzx_runtime.c#L1220-L1236</code></a></div>
 ```c title="jzx_spawn()" showLineNumbers=1220
 jzx_err jzx_spawn(jzx_loop* loop, const jzx_spawn_opts* opts, jzx_actor_id* out_id) {
     if (!loop || !opts || !opts->behavior) {
@@ -1700,6 +1790,7 @@ jzx_err jzx_spawn(jzx_loop* loop, const jzx_spawn_opts* opts, jzx_actor_id* out_
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_send_internal -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1238-L1259"><code>src/jzx_runtime.c#L1238-L1259</code></a></div>
 ```c title="jzx_send_internal() (core enqueue path)" showLineNumbers=1238
 static jzx_err jzx_send_internal(jzx_loop* loop, jzx_actor_id target, void* data, size_t len,
                                  uint32_t tag, jzx_actor_id sender) {
@@ -1726,6 +1817,7 @@ static jzx_err jzx_send_internal(jzx_loop* loop, jzx_actor_id target, void* data
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_send -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1261-L1263"><code>src/jzx_runtime.c#L1261-L1263</code></a></div>
 ```c title="jzx_send()" showLineNumbers=1261
 jzx_err jzx_send(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag) {
     return jzx_send_internal(loop, target, data, len, tag, 0);
@@ -1733,6 +1825,7 @@ jzx_err jzx_send(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, ui
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_send_async -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1265-L1267"><code>src/jzx_runtime.c#L1265-L1267</code></a></div>
 ```c title="jzx_send_async()" showLineNumbers=1265
 jzx_err jzx_send_async(jzx_loop* loop, jzx_actor_id target, void* data, size_t len, uint32_t tag) {
     return jzx_async_enqueue(loop, target, data, len, tag, 0);
@@ -1740,6 +1833,7 @@ jzx_err jzx_send_async(jzx_loop* loop, jzx_actor_id target, void* data, size_t l
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_stop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1269-L1280"><code>src/jzx_runtime.c#L1269-L1280</code></a></div>
 ```c title="jzx_actor_stop()" showLineNumbers=1269
 jzx_err jzx_actor_stop(jzx_loop* loop, jzx_actor_id id) {
     if (!loop) {
@@ -1756,6 +1850,7 @@ jzx_err jzx_actor_stop(jzx_loop* loop, jzx_actor_id id) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_actor_fail -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1282-L1293"><code>src/jzx_runtime.c#L1282-L1293</code></a></div>
 ```c title="jzx_actor_fail()" showLineNumbers=1282
 jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
     if (!loop) {
@@ -1774,6 +1869,7 @@ jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
 ## Supervisor APIs (public ABI entry points)
 
 <!-- snippet: src/jzx_runtime.c#L1295-L1297 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1295-L1297"><code>src/jzx_runtime.c#L1295-L1297</code></a></div>
 ```c title="Section: supervisor spawn" showLineNumbers=1295
 // -----------------------------------------------------------------------------
 // Supervisor spawn
@@ -1781,6 +1877,7 @@ jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_spawn_supervisor -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1299-L1340"><code>src/jzx_runtime.c#L1299-L1340</code></a></div>
 ```c title="jzx_spawn_supervisor()" showLineNumbers=1299
 jzx_err jzx_spawn_supervisor(jzx_loop* loop, const jzx_supervisor_init* init, jzx_actor_id parent,
                              jzx_actor_id* out_id) {
@@ -1827,6 +1924,7 @@ jzx_err jzx_spawn_supervisor(jzx_loop* loop, const jzx_supervisor_init* init, jz
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_supervisor_child_id -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1342-L1356"><code>src/jzx_runtime.c#L1342-L1356</code></a></div>
 ```c title="jzx_supervisor_child_id()" showLineNumbers=1342
 jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t index,
                                 jzx_actor_id* out_id) {
@@ -1848,6 +1946,7 @@ jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t 
 ## Timers and I/O APIs (public ABI entry points)
 
 <!-- snippet: src/jzx_runtime.c#L1358-L1360 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1358-L1360"><code>src/jzx_runtime.c#L1358-L1360</code></a></div>
 ```c title="Section: timers & IO" showLineNumbers=1358
 // -----------------------------------------------------------------------------
 // Timers & IO
@@ -1855,6 +1954,7 @@ jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t 
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_send_after -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1362-L1391"><code>src/jzx_runtime.c#L1362-L1391</code></a></div>
 ```c title="jzx_send_after()" showLineNumbers=1362
 jzx_err jzx_send_after(jzx_loop* loop, jzx_actor_id target, uint32_t ms, void* data, size_t len,
                        uint32_t tag, jzx_timer_id* out_timer) {
@@ -1889,6 +1989,7 @@ jzx_err jzx_send_after(jzx_loop* loop, jzx_actor_id target, uint32_t ms, void* d
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_cancel_timer -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1393-L1416"><code>src/jzx_runtime.c#L1393-L1416</code></a></div>
 ```c title="jzx_cancel_timer()" showLineNumbers=1393
 jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer) {
     if (!loop || !loop->timer_mutex_initialized) {
@@ -1917,6 +2018,7 @@ jzx_err jzx_cancel_timer(jzx_loop* loop, jzx_timer_id timer) {
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_watch_fd -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1418-L1456"><code>src/jzx_runtime.c#L1418-L1456</code></a></div>
 ```c title="jzx_watch_fd()" showLineNumbers=1418
 jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t interest) {
     if (!loop || !loop->xev || fd < 0 || interest == 0) {
@@ -1960,6 +2062,7 @@ jzx_err jzx_watch_fd(jzx_loop* loop, int fd, jzx_actor_id owner, uint32_t intere
 ```
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_unwatch_fd -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1458-L1469"><code>src/jzx_runtime.c#L1458-L1469</code></a></div>
 ```c title="jzx_unwatch_fd()" showLineNumbers=1458
 jzx_err jzx_unwatch_fd(jzx_loop* loop, int fd) {
     if (!loop || fd < 0) {
@@ -1981,6 +2084,7 @@ jzx_err jzx_unwatch_fd(jzx_loop* loop, int fd) {
 <summary>Show full <code>src/jzx_runtime.c</code></summary>
 
 <!-- snippet: src/jzx_runtime.c#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1-L1469"><code>src/jzx_runtime.c#L1-L1469</code></a></div>
 ```c title="src/jzx_runtime.c (full source)" showLineNumbers=1
 #include "jzx_internal.h"
 

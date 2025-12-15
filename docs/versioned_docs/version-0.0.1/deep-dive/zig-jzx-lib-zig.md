@@ -12,9 +12,17 @@ This file is a small, Zig-friendly layer over the C ABI (`include/jzx/jzx.h`). I
 
 This page is intentionally “textbook style”: small snippets, then explanation.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- Underlying ABI: [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h)
+- Used by: [Zig ping example](examples-zig-ping-zig), [Zig typed actor example](examples-zig-typed-actor-zig)
+- Verified by: [Integration tests (`zig/tests/basic.zig`)](zig-tests-basic-zig)
+
 ## Importing the standard library and the C ABI
 
 <!-- snippet: zig/jzx/lib.zig#L1-L5 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L1-L5"><code>zig/jzx/lib.zig#L1-L5</code></a></div>
 ```zig title="Imports and C ABI import" showLineNumbers=1
 const std = @import("std");
 
@@ -34,6 +42,7 @@ Why it exists: Zig can call C directly, so this wrapper keeps the ABI as the sin
 ## Error mapping (`LoopError`)
 
 <!-- snippet: zig/jzx/lib.zig#L7-L15 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L7-L15"><code>zig/jzx/lib.zig#L7-L15</code></a></div>
 ```zig title="Zig error set used by the wrapper" showLineNumbers=7
 pub const LoopError = error{
     CreateFailed,
@@ -56,6 +65,7 @@ Important: this mapping is intentionally incomplete; unknown C error codes map t
 ## Small public helper types (behavior and context)
 
 <!-- snippet: zig/jzx/lib.zig#L17-L27 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L17-L27"><code>zig/jzx/lib.zig#L17-L27</code></a></div>
 ```zig title="BehaviorResult, ActorContext, SpawnOptions" showLineNumbers=17
 pub const BehaviorResult = enum { ok, stop, fail };
 
@@ -79,6 +89,7 @@ These mirror key C ABI concepts in a Zig-friendly form:
 ## `Loop`: RAII-ish wrapper for `*c.jzx_loop`
 
 <!-- snippet: zig/jzx/lib.zig#L29-L72 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L29-L72"><code>zig/jzx/lib.zig#L29-L72</code></a></div>
 ```zig title="Loop wrapper" showLineNumbers=29
 pub const Loop = struct {
     ptr: *c.jzx_loop,
@@ -142,6 +153,7 @@ Why this exists: it converts “raw pointers + int error codes” into an ergono
 ## Compile-time guard for typed actor payloads
 
 <!-- snippet: zig/jzx/lib.zig#L74-L79 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L74-L79"><code>zig/jzx/lib.zig#L74-L79</code></a></div>
 ```zig title="ensurePointerType" showLineNumbers=74
 fn ensurePointerType(comptime T: type) void {
     switch (@typeInfo(T)) {
@@ -172,6 +184,7 @@ At a high level, the typed actor helper works like this:
 ### The `Actor` type factory and the `Shim`
 
 <!-- snippet: zig/jzx/lib.zig#L81-L90 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L81-L89"><code>zig/jzx/lib.zig#L81-L89</code></a></div>
 ```zig title="Type factory setup and shim definition" showLineNumbers=81
 pub fn Actor(comptime State: type, comptime MsgPtr: type) type {
     ensurePointerType(MsgPtr);
@@ -193,6 +206,7 @@ Why the shim exists: C behaviors accept `void* state`; the shim is the bridge fr
 ### The returned actor wrapper type (fields)
 
 <!-- snippet: zig/jzx/lib.zig#L91-L98 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L91-L97"><code>zig/jzx/lib.zig#L91-L97</code></a></div>
 ```zig title="Actor wrapper fields" showLineNumbers=91
     return struct {
         const Self = @This();
@@ -211,6 +225,7 @@ Why the shim exists: C behaviors accept `void* state`; the shim is the bridge fr
 ### Spawning: allocate shim, then call into C
 
 <!-- snippet: zig/jzx/lib.zig#L99-L128 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L99-L128"><code>zig/jzx/lib.zig#L99-L128</code></a></div>
 ```zig title="spawn()" showLineNumbers=99
         pub fn spawn(
             loop: *c.jzx_loop,
@@ -254,6 +269,7 @@ Key lines and why they exist:
 ### Destroy: free shim (does not stop the actor)
 
 <!-- snippet: zig/jzx/lib.zig#L130-L137 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L130-L137"><code>zig/jzx/lib.zig#L130-L137</code></a></div>
 ```zig title="destroy() and getId()" showLineNumbers=130
         pub fn destroy(self: *Self) void {
             self.allocator.destroy(self.shim);
@@ -275,6 +291,7 @@ TODO: Decide whether the wrapper should offer an explicit `stop()` convenience t
 ### The C ABI trampoline (typed dispatch)
 
 <!-- snippet: zig/jzx/lib.zig#L139-L148 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L139-L148"><code>zig/jzx/lib.zig#L139-L148</code></a></div>
 ```zig title="trampoline()" showLineNumbers=139
         fn trampoline(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
             const ctx_ptr = ctx.*;
@@ -299,6 +316,7 @@ This is the most important function in the typed actor system:
 ### Decoding the message payload pointer
 
 <!-- snippet: zig/jzx/lib.zig#L150-L156 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L150-L156"><code>zig/jzx/lib.zig#L150-L156</code></a></div>
 ```zig title="decodeMsgPtr()" showLineNumbers=150
         fn decodeMsgPtr(message: c.jzx_message) MsgPtr {
             if (message.data) |raw| {
@@ -319,6 +337,7 @@ If those assumptions are violated, the wrapper panics, because continuing would 
 ### Mapping result enums back to C
 
 <!-- snippet: zig/jzx/lib.zig#L158-L166 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L158-L166"><code>zig/jzx/lib.zig#L158-L166</code></a></div>
 ```zig title="mapBehaviorResult()" showLineNumbers=158
         fn mapBehaviorResult(result: BehaviorResult) c.jzx_behavior_result {
             return switch (result) {
@@ -336,6 +355,7 @@ This is a pure mapping layer: Zig enum → C enum.
 ## Error mapping helper (`mapError`)
 
 <!-- snippet: zig/jzx/lib.zig#L168-L177 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/jzx/lib.zig#L168-L177"><code>zig/jzx/lib.zig#L168-L177</code></a></div>
 ```zig title="mapError()" showLineNumbers=168
 fn mapError(code: c_int) LoopError {
     return switch (code) {

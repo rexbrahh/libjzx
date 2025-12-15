@@ -16,9 +16,16 @@ It’s a good “systems thinking” example because it forces you to confront:
 - **restart semantics** (when does a child restart?)
 - **intensity limits** (how to avoid infinite crash loops)
 
+## Cross-links
+
+- Public APIs used: [Supervisor APIs (`include/jzx/jzx.h`)](include-jzx-jzx-h#spawning)
+- Under the hood: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+- Run it: [Quickstart](../getting-started/quickstart), [Installation](../getting-started/installation)
+
 ## Includes
 
 <!-- snippet: examples/c/supervisor.c#L1-L7 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L1-L6"><code>examples/c/supervisor.c#L1-L6</code></a></div>
 ```c title="Includes" showLineNumbers=1
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +48,7 @@ Why each header exists:
 This example sends a small heap-allocated struct as message payload.
 
 <!-- snippet: examples/c/supervisor.c#L8-L10 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L8-L10"><code>examples/c/supervisor.c#L8-L10</code></a></div>
 ```c title="tick_msg" showLineNumbers=8
 typedef struct {
     int tick;
@@ -60,6 +68,7 @@ Why a heap-allocated payload is used here:
 ## Allocating payloads: `make_tick`
 
 <!-- snippet: examples/c/supervisor.c#func=make_tick -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L12-L18"><code>examples/c/supervisor.c#L12-L18</code></a></div>
 ```c title="make_tick(): allocate a tick payload" showLineNumbers=12
 static tick_msg* make_tick(int tick) {
     tick_msg* msg = (tick_msg*)malloc(sizeof(tick_msg));
@@ -89,6 +98,7 @@ The child:
 - after a few ticks, returns `FAIL` to simulate a crash
 
 <!-- snippet: examples/c/supervisor.c#func=flapping_actor -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L20-L41"><code>examples/c/supervisor.c#L20-L41</code></a></div>
 ```c title="flapping_actor(): schedule ticks, then fail" showLineNumbers=20
 static jzx_behavior_result flapping_actor(jzx_context* ctx, const jzx_message* msg) {
     if (!msg->data)
@@ -135,6 +145,7 @@ Deep explanation:
 ### Loop creation
 
 <!-- snippet: examples/c/supervisor.c#between=int main(void) {|jzx_child_spec children -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L43-L51"><code>examples/c/supervisor.c#L43-L51</code></a></div>
 ```c title="Create the loop" showLineNumbers=43
 int main(void) {
     jzx_config cfg;
@@ -154,6 +165,7 @@ This uses default loop config (`jzx_config_init`) and allocates the loop.
 The child spec describes how the supervisor should manage the child.
 
 <!-- snippet: examples/c/supervisor.c#between=jzx_child_spec children[] = {|jzx_supervisor_init sup_init -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L53-L63"><code>examples/c/supervisor.c#L53-L63</code></a></div>
 ```c title="Child spec: restart policy for flapping_actor" showLineNumbers=53
     jzx_child_spec children[] = {
         {
@@ -182,6 +194,7 @@ What matters most here:
 ### Supervisor init (strategy + intensity)
 
 <!-- snippet: examples/c/supervisor.c#between=jzx_supervisor_init sup_init = {|jzx_actor_id sup_id -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L65-L76"><code>examples/c/supervisor.c#L65-L76</code></a></div>
 ```c title="Supervisor init: one_for_one strategy + intensity window" showLineNumbers=65
     jzx_supervisor_init sup_init = {
         .children = children,
@@ -213,6 +226,7 @@ Interpretation:
 ### Spawn the supervisor and find the child id
 
 <!-- snippet: examples/c/supervisor.c#between=jzx_actor_id sup_id|tick_msg* first -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L78-L88"><code>examples/c/supervisor.c#L78-L88</code></a></div>
 ```c title="Spawn supervisor and fetch the child actor id" showLineNumbers=78
     jzx_actor_id sup_id = 0;
     if (jzx_spawn_supervisor(loop, &sup_init, 0, &sup_id) != JZX_OK) {
@@ -236,6 +250,7 @@ Notes:
 ### Send the initial tick
 
 <!-- snippet: examples/c/supervisor.c#between=tick_msg* first|int rc -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L90-L96"><code>examples/c/supervisor.c#L90-L96</code></a></div>
 ```c title="Kick the child with tick=0" showLineNumbers=90
     tick_msg* first = make_tick(0);
     if (!first)
@@ -258,6 +273,7 @@ Ownership note:
 ## Running the loop
 
 <!-- snippet: examples/c/supervisor.c#L98-L101 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L98-L101"><code>examples/c/supervisor.c#L98-L101</code></a></div>
 ```c title="Run the loop (event-loop style)" showLineNumbers=98
     int rc = jzx_loop_run(loop);
     jzx_loop_destroy(loop);
@@ -278,6 +294,7 @@ If you want a “self-terminating” variant:
 ## Full listing (for reference)
 
 <!-- snippet: examples/c/supervisor.c#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/supervisor.c#L1-L101"><code>examples/c/supervisor.c#L1-L101</code></a></div>
 ```c title="examples/c/supervisor.c" showLineNumbers=1
 #include <stdio.h>
 #include <stdlib.h>

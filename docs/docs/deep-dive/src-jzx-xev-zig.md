@@ -12,9 +12,17 @@ This file is the bridge between:
 
 This page uses a textbook-style format: short snippets with explanation immediately around them.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- Public API (watch/unwatch): [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h#timers-and-io)
+- Runtime delivery path: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+- Example using fd watches: [Zig echo server](examples-zig-echo-server-zig)
+
 ## Imports, ABI wiring, and core aliases
 
 <!-- snippet: src/jzx_xev.zig#L1-L13 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L1-L13"><code>src/jzx_xev.zig#L1-L13</code></a></div>
 ```zig title="Imports, C ABI import, and core aliases" showLineNumbers=1
 const std = @import("std");
 const xev = @import("xev");
@@ -44,6 +52,7 @@ Why it exists: the runtime owns scheduling and message delivery, but it needs a 
 ## The per-fd watch object (`Watch`)
 
 <!-- snippet: src/jzx_xev.zig#L15-L25 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L15-L25"><code>src/jzx_xev.zig#L15-L25</code></a></div>
 ```zig title="Watch: one fd + xev completions" showLineNumbers=15
 const Watch = struct {
     loop: *c.jzx_loop,
@@ -72,6 +81,7 @@ Why the `*_cancel` completions exist: xev completion objects have a lifecycle; c
 ## Backend state stored inside the C loop (`XevState`)
 
 <!-- snippet: src/jzx_xev.zig#L27-L45 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L27-L45"><code>src/jzx_xev.zig#L27-L45</code></a></div>
 ```zig title="XevState: backend-owned state" showLineNumbers=27
 pub const XevState = struct {
     loop: Loop,
@@ -107,6 +117,7 @@ pub const XevState = struct {
 ## Backend capability check (`supportsPollOps`)
 
 <!-- snippet: src/jzx_xev.zig#func=supportsPollOps -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L47-L56"><code>src/jzx_xev.zig#L47-L56</code></a></div>
 ```zig title="supportsPollOps()" showLineNumbers=47
 fn supportsPollOps() bool {
     if (comptime Xev.dynamic) {
@@ -130,6 +141,7 @@ Why it exists: if the backend can’t watch fds, the runtime’s I/O API must fa
 ## Finding and creating watches (`findWatchIndex` and `ensureWatch`)
 
 <!-- snippet: src/jzx_xev.zig#func=findWatchIndex -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L58-L63"><code>src/jzx_xev.zig#L58-L63</code></a></div>
 ```zig title="findWatchIndex()" showLineNumbers=58
 fn findWatchIndex(state: *XevState, fd: c_int) ?usize {
     for (state.watches.items, 0..) |watch, idx| {
@@ -144,6 +156,7 @@ This is a linear search over `state.watches` by fd.
 TODO: If watch counts grow large, consider a hashmap (fd → index) to avoid O(n) scans.
 
 <!-- snippet: src/jzx_xev.zig#func=ensureWatch -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L65-L81"><code>src/jzx_xev.zig#L65-L81</code></a></div>
 ```zig title="ensureWatch()" showLineNumbers=65
 fn ensureWatch(state: *XevState, loop: *c.jzx_loop, fd: c_int) !*Watch {
     if (findWatchIndex(state, fd)) |idx| {
@@ -174,6 +187,7 @@ Why it exists: it centralizes the “lookup or create” logic so `watch_fd` sta
 ## Cancelling active completions (`cancelIfNeeded`)
 
 <!-- snippet: src/jzx_xev.zig#func=cancelIfNeeded -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L83-L120"><code>src/jzx_xev.zig#L83-L120</code></a></div>
 ```zig title="cancelIfNeeded()" showLineNumbers=83
 fn cancelIfNeeded(state: *XevState, target: *Completion, cancel: *Completion) void {
     if (target.state() == .dead) return;
@@ -225,6 +239,7 @@ This function is subtle and critical:
 Why it exists: cancelling an in-flight completion is the safe way to stop watching an fd without freeing data structures too early.
 
 <!-- snippet: src/jzx_xev.zig#func=cancelCallback -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L122-L124"><code>src/jzx_xev.zig#L122-L124</code></a></div>
 ```zig title="cancelCallback()" showLineNumbers=122
 fn cancelCallback(_: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     return .disarm;
@@ -236,6 +251,7 @@ The cancel callback always returns `.disarm`, which tells xev not to rearm the c
 ## Readiness callbacks (delivering events back into C)
 
 <!-- snippet: src/jzx_xev.zig#func=readCallback -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L126-L133"><code>src/jzx_xev.zig#L126-L133</code></a></div>
 ```zig title="readCallback()" showLineNumbers=126
 fn readCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     const watch = @as(*Watch, @ptrCast(@alignCast(ud.?)));
@@ -255,6 +271,7 @@ fn readCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.Ca
 The return value from `jzx_io_xev_notify` is the runtime’s way to say: “keep watching” vs “stop watching”.
 
 <!-- snippet: src/jzx_xev.zig#func=writeCallback -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L135-L142"><code>src/jzx_xev.zig#L135-L142</code></a></div>
 ```zig title="writeCallback()" showLineNumbers=135
 fn writeCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.CallbackAction {
     const watch = @as(*Watch, @ptrCast(@alignCast(ud.?)));
@@ -271,6 +288,7 @@ Same logic as `readCallback`, but for `JZX_IO_WRITE`.
 ## Arming read/write operations (`armRead` / `armWrite`)
 
 <!-- snippet: src/jzx_xev.zig#func=armRead -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L144-L195"><code>src/jzx_xev.zig#L144-L195</code></a></div>
 ```zig title="armRead()" showLineNumbers=144
 fn armRead(state: *XevState, watch: *Watch) void {
     if (!supportsPollOps()) return;
@@ -333,6 +351,7 @@ This function arms a completion for “readable” readiness.
 - The non-dynamic path uses the statically selected backend and attaches `readCallback`.
 
 <!-- snippet: src/jzx_xev.zig#func=armWrite -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L197-L248"><code>src/jzx_xev.zig#L197-L248</code></a></div>
 ```zig title="armWrite()" showLineNumbers=197
 fn armWrite(state: *XevState, watch: *Watch) void {
     if (!supportsPollOps()) return;
@@ -395,6 +414,7 @@ Why the dynamic path is more verbose: xev’s dynamic superset requires construc
 ## Keeping watch state consistent (`syncWatch`, `sweep`)
 
 <!-- snippet: src/jzx_xev.zig#func=syncWatch -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L250-L266"><code>src/jzx_xev.zig#L250-L266</code></a></div>
 ```zig title="syncWatch()" showLineNumbers=250
 fn syncWatch(state: *XevState, watch: *Watch) void {
     if (watch.removed) {
@@ -422,6 +442,7 @@ This function reconciles “desired interest” with “armed completions”:
 - If not interested, cancel any armed completion.
 
 <!-- snippet: src/jzx_xev.zig#func=watchReadyToFree -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L268-L271"><code>src/jzx_xev.zig#L268-L271</code></a></div>
 ```zig title="watchReadyToFree()" showLineNumbers=268
 fn watchReadyToFree(watch: *Watch) bool {
     return watch.read.state() == .dead and watch.write.state() == .dead and
@@ -432,6 +453,7 @@ fn watchReadyToFree(watch: *Watch) bool {
 A watch can be freed only when all four completions (read/write and their cancels) are dead.
 
 <!-- snippet: src/jzx_xev.zig#func=sweep -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L273-L290"><code>src/jzx_xev.zig#L273-L290</code></a></div>
 ```zig title="sweep()" showLineNumbers=273
 fn sweep(state: *XevState) void {
     var i: usize = 0;
@@ -465,6 +487,7 @@ It removes freed watches by swapping with the last element (O(1) removal, order 
 ## Wake callback
 
 <!-- snippet: src/jzx_xev.zig#func=wakeCallback -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L292-L295"><code>src/jzx_xev.zig#L292-L295</code></a></div>
 ```zig title="wakeCallback()" showLineNumbers=292
 fn wakeCallback(_: ?*void, _: *Loop, _: *Completion, result: Async.WaitError!void) Xev.CallbackAction {
     _ = result catch return .disarm;
@@ -479,6 +502,7 @@ The wake callback rearms itself on success so the async wake handle continues to
 ### Create backend state
 
 <!-- snippet: src/jzx_xev.zig#func=jzx_xev_create -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L297-L330"><code>src/jzx_xev.zig#L297-L330</code></a></div>
 ```zig title="jzx_xev_create()" showLineNumbers=297
 pub export fn jzx_xev_create() ?*XevState {
     if (!supportsPollOps()) {
@@ -526,6 +550,7 @@ Highlights:
 ### Destroy backend state
 
 <!-- snippet: src/jzx_xev.zig#func=jzx_xev_destroy -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L332-L337"><code>src/jzx_xev.zig#L332-L337</code></a></div>
 ```zig title="jzx_xev_destroy()" showLineNumbers=332
 pub export fn jzx_xev_destroy(state: *XevState) void {
     if (@intFromPtr(state) == 0) return;
@@ -540,6 +565,7 @@ This frees all backend-owned resources.
 ### Wake a blocked loop
 
 <!-- snippet: src/jzx_xev.zig#func=jzx_xev_wakeup -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L339-L342"><code>src/jzx_xev.zig#L339-L342</code></a></div>
 ```zig title="jzx_xev_wakeup()" showLineNumbers=339
 pub export fn jzx_xev_wakeup(state: *XevState) void {
     if (@intFromPtr(state) == 0) return;
@@ -552,6 +578,7 @@ Used by the C runtime after it enqueues cross-thread work so a blocking wait wil
 ### Run one step of the backend loop
 
 <!-- snippet: src/jzx_xev.zig#func=jzx_xev_run -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L344-L353"><code>src/jzx_xev.zig#L344-L353</code></a></div>
 ```zig title="jzx_xev_run()" showLineNumbers=344
 pub export fn jzx_xev_run(state: *XevState, mode: c_int) void {
     if (@intFromPtr(state) == 0) return;
@@ -575,6 +602,7 @@ Then `sweep` runs to reconcile interests, cancellations, and frees.
 ### Watch an fd
 
 <!-- snippet: src/jzx_xev.zig#func=jzx_xev_watch_fd -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L355-L364"><code>src/jzx_xev.zig#L355-L364</code></a></div>
 ```zig title="jzx_xev_watch_fd()" showLineNumbers=355
 pub export fn jzx_xev_watch_fd(state: *XevState, loop: *c.jzx_loop, fd: c_int, interest: u32) c_int {
     if (@intFromPtr(state) == 0 or @intFromPtr(loop) == 0 or fd < 0 or interest == 0) {
@@ -598,6 +626,7 @@ Then it updates interest and syncs the watch immediately.
 ### Unwatch an fd
 
 <!-- snippet: src/jzx_xev.zig#func=jzx_xev_unwatch_fd -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L366-L372"><code>src/jzx_xev.zig#L366-L372</code></a></div>
 ```zig title="jzx_xev_unwatch_fd()" showLineNumbers=366
 pub export fn jzx_xev_unwatch_fd(state: *XevState, fd: c_int) void {
     if (@intFromPtr(state) == 0 or fd < 0) return;

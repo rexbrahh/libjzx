@@ -18,3 +18,11 @@ This page captures the “why” behind libjzx. Keep it short and update it when
 ## Non-goals (for now)
 
 TODO: Fill in explicit non-goals (e.g., distributed actors, transparent networking, multi-process clustering).
+
+## See also
+
+- [Architecture](architecture)
+- [Configuration reference](../reference/config-reference)
+- Deep dive entry points:
+  - [Runtime core (`src/jzx_runtime.c`)](../deep-dive/src-jzx-runtime-c)
+  - [Stress tool (`tools/stress.zig`)](../deep-dive/tools-stress-zig)

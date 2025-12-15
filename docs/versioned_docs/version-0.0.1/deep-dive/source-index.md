@@ -46,28 +46,28 @@ If you want to keep the docs extremely detailed *and* maintainable as code evolv
 
 ## Quick links
 
-Build + packaging:
+### Build + packaging {#build}
 
 - [`build.zig.zon` (dependency manifest)](build-zig-zon)
 - [`build.zig` (build graph)](build-zig)
 
-Public surface:
+### Public surface {#public}
 
 - [C ABI: `include/jzx/jzx.h` (annotated)](include-jzx-jzx-h)
 - [Zig wrapper: `zig/jzx/lib.zig` (annotated)](zig-jzx-lib-zig)
 
-Runtime internals:
+### Runtime internals {#runtime}
 
 - [Runtime internals: `src/jzx_internal.h` (annotated)](src-jzx-internal-h)
 - [Runtime core: `src/jzx_runtime.c` (annotated)](src-jzx-runtime-c)
 - [libxev integration: `src/jzx_xev.zig` (annotated)](src-jzx-xev-zig)
 
-Testing + stress:
+### Testing + stress {#testing}
 
 - [Integration tests: `zig/tests/basic.zig` (annotated)](zig-tests-basic-zig)
 - [Stress tool: `tools/stress.zig` (annotated)](tools-stress-zig)
 
-Examples:
+### Examples {#examples}
 
 - [Zig: `examples/zig/ping.zig`](examples-zig-ping-zig)
 - [Zig: `examples/zig/typed_actor.zig`](examples-zig-typed-actor-zig)

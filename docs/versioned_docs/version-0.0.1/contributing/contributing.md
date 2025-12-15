@@ -33,8 +33,8 @@ zig build stress
 
 Pointers:
 
-- Tests: `zig/tests/basic.zig` ([walkthrough](/docs/deep-dive/zig-tests-basic-zig))
-- Stress tool: `tools/stress.zig` ([walkthrough](/docs/deep-dive/tools-stress-zig))
+- Tests: `zig/tests/basic.zig` ([walkthrough](deep-dive/zig-tests-basic-zig))
+- Stress tool: `tools/stress.zig` ([walkthrough](deep-dive/tools-stress-zig))
 
 ## Documentation site
 

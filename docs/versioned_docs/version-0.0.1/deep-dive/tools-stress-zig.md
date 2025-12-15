@@ -18,9 +18,17 @@ The code intentionally uses small, bounded scenarios that either:
 
 This page follows the “textbook” style: small snippets with immediate explanation.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- Design intent: [Design goals](../concepts/design-goals)
+- Contracts exercised: [Configuration reference](../reference/config-reference), [Observer callbacks](include-jzx-jzx-h#observability)
+- Under the hood: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+
 ## Imports and C ABI access
 
 <!-- snippet: tools/stress.zig#L1-L3 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L1-L3"><code>tools/stress.zig#L1-L3</code></a></div>
 ```zig title="Imports" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");
@@ -43,6 +51,7 @@ Why this file uses `c.*` directly (instead of only the wrapper):
 `RunConfig` is the common “knob bundle” shared by all scenarios.
 
 <!-- snippet: tools/stress.zig#L5-L9 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L5-L9"><code>tools/stress.zig#L5-L9</code></a></div>
 ```zig title="RunConfig" showLineNumbers=5
 const RunConfig = struct {
     smoke: bool,
@@ -64,6 +73,7 @@ The stress harness uses the observer hook table to count events and (optionally)
 ### Counters
 
 <!-- snippet: tools/stress.zig#L11-L20 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L11-L20"><code>tools/stress.zig#L11-L20</code></a></div>
 ```zig title="ObserverStats: per-scenario counters" showLineNumbers=11
 const ObserverStats = struct {
     actor_start: u32 = 0,
@@ -89,6 +99,7 @@ Why it exists:
 Each observer callback receives a `ctx` pointer. The harness uses that `ctx` as a pointer to an `ObserverSink`.
 
 <!-- snippet: tools/stress.zig#L22-L26 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L22-L26"><code>tools/stress.zig#L22-L26</code></a></div>
 ```zig title="ObserverSink: passed via observer ctx" showLineNumbers=22
 const ObserverSink = struct {
     scenario: []const u8,
@@ -104,6 +115,7 @@ const ObserverSink = struct {
 ### Callback: actor start
 
 <!-- snippet: tools/stress.zig#func=obsActorStart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L28-L38"><code>tools/stress.zig#L28-L38</code></a></div>
 ```zig title="obsActorStart(): count + optionally print" showLineNumbers=28
 fn obsActorStart(ctx: ?*anyopaque, id: c.jzx_actor_id, name: [*c]const u8) callconv(.c) void {
     const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
@@ -133,6 +145,7 @@ Deep explanation:
 ### Callback: actor stop
 
 <!-- snippet: tools/stress.zig#func=obsActorStop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L40-L51"><code>tools/stress.zig#L40-L51</code></a></div>
 ```zig title="obsActorStop(): count exit reasons" showLineNumbers=40
 fn obsActorStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exit_reason) callconv(.c) void {
     const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
@@ -160,6 +173,7 @@ What’s going on:
 ### Callback: actor restart
 
 <!-- snippet: tools/stress.zig#func=obsActorRestart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L53-L58"><code>tools/stress.zig#L53-L58</code></a></div>
 ```zig title="obsActorRestart(): restart attempt counter" showLineNumbers=53
 fn obsActorRestart(ctx: ?*anyopaque, supervisor: c.jzx_actor_id, child: c.jzx_actor_id, attempt: u32) callconv(.c) void {
     const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
@@ -178,6 +192,7 @@ This callback is meant to validate:
 ### Callback: supervisor escalation
 
 <!-- snippet: tools/stress.zig#func=obsSupervisorEscalate -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L60-L65"><code>tools/stress.zig#L60-L65</code></a></div>
 ```zig title="obsSupervisorEscalate(): count escalation events" showLineNumbers=60
 fn obsSupervisorEscalate(ctx: ?*anyopaque, supervisor: c.jzx_actor_id) callconv(.c) void {
     const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
@@ -195,6 +210,7 @@ Escalation typically means:
 ### Callback: mailbox full
 
 <!-- snippet: tools/stress.zig#func=obsMailboxFull -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L67-L72"><code>tools/stress.zig#L67-L72</code></a></div>
 ```zig title="obsMailboxFull(): count backpressure events" showLineNumbers=67
 fn obsMailboxFull(ctx: ?*anyopaque, target: c.jzx_actor_id) callconv(.c) void {
     const sink = @as(*ObserverSink, @ptrCast(@alignCast(ctx.?)));
@@ -212,6 +228,7 @@ This callback is the bridge between a runtime invariant and an observable contra
 ### Installing the observer table
 
 <!-- snippet: tools/stress.zig#func=setupObserver -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L74-L83"><code>tools/stress.zig#L74-L83</code></a></div>
 ```zig title="setupObserver(): populate jzx_observer and install it" showLineNumbers=74
 fn setupObserver(loop: *c.jzx_loop, sink: *ObserverSink) void {
     var obs = c.jzx_observer{
@@ -234,6 +251,7 @@ Important details:
 ### Printing a summary line
 
 <!-- snippet: tools/stress.zig#func=printObserverSummary -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L85-L100"><code>tools/stress.zig#L85-L100</code></a></div>
 ```zig title="printObserverSummary(): one-line report" showLineNumbers=85
 fn printObserverSummary(label: []const u8, stats: ObserverStats) void {
     std.debug.print(
@@ -260,6 +278,7 @@ This is the “operator UX” for the stress tool:
 ## CLI parsing and scenario selection (`main`)
 
 <!-- snippet: tools/stress.zig#func=main -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L102-L150"><code>tools/stress.zig#L102-L150</code></a></div>
 ```zig title="main(): parse flags and dispatch scenarios" showLineNumbers=102
 pub fn main() !void {
     var args = std.process.args();
@@ -322,6 +341,7 @@ Key UX choices:
 ## Shared error type
 
 <!-- snippet: tools/stress.zig#L152-L154 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L152-L154"><code>tools/stress.zig#L152-L154</code></a></div>
 ```zig title="StressError: unified failure for CI" showLineNumbers=152
 const StressError = error{
     StressFailed,
@@ -344,6 +364,7 @@ The *systems goal* is fairness: both actors should receive many messages, not ju
 ### State layout
 
 <!-- snippet: tools/stress.zig#L156-L161 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L156-L161"><code>tools/stress.zig#L156-L161</code></a></div>
 ```zig title="PingPongState" showLineNumbers=156
 const PingPongState = struct {
     loop: *c.jzx_loop,
@@ -364,6 +385,7 @@ What each field means:
 ### Behavior
 
 <!-- snippet: tools/stress.zig#func=pingPongBehavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L163-L176"><code>tools/stress.zig#L163-L176</code></a></div>
 ```zig title="pingPongBehavior(): bounce messages until budget is exhausted" showLineNumbers=163
 fn pingPongBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -391,6 +413,7 @@ Important details:
 ### Scenario wiring
 
 <!-- snippet: tools/stress.zig#func=runPingPong -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L178-L240"><code>tools/stress.zig#L178-L240</code></a></div>
 ```zig title="runPingPong(): spawn two actors and measure" showLineNumbers=178
 fn runPingPong(cfg: RunConfig) !void {
     const iterations: u32 = if (cfg.smoke) 50_000 else 500_000;
@@ -469,6 +492,7 @@ This scenario creates **one actor** and schedules many timers to send it message
 ### State + behavior
 
 <!-- snippet: tools/stress.zig#L242-L256 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L242-L256"><code>tools/stress.zig#L242-L256</code></a></div>
 ```zig title="TimerState and timerBehavior()" showLineNumbers=242
 const TimerState = struct {
     target: u32,
@@ -492,6 +516,7 @@ The actor stops itself once it has received `target` timer messages.
 ### Scenario wiring
 
 <!-- snippet: tools/stress.zig#func=runTimerStorm -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L258-L300"><code>tools/stress.zig#L258-L300</code></a></div>
 ```zig title="runTimerStorm(): schedule many timers" showLineNumbers=258
 fn runTimerStorm(cfg: RunConfig) !void {
     const timer_count: u32 = if (cfg.smoke) 2000 else 20_000;
@@ -551,6 +576,7 @@ This scenario sets up a supervisor with a child that always fails, and then repe
 ### Child state + always-fail behavior
 
 <!-- snippet: tools/stress.zig#L302-L312 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L302-L312"><code>tools/stress.zig#L302-L312</code></a></div>
 ```zig title="RestartState + alwaysFail()" showLineNumbers=302
 const RestartState = struct {
     runs: u32 = 0,
@@ -573,6 +599,7 @@ Why count `runs`:
 ### Scenario wiring
 
 <!-- snippet: tools/stress.zig#func=runRestartThrash -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L314-L378"><code>tools/stress.zig#L314-L378</code></a></div>
 ```zig title="runRestartThrash(): supervise a failing child and poke it asynchronously" showLineNumbers=314
 fn runRestartThrash(cfg: RunConfig) !void {
     const iterations: u32 = if (cfg.smoke) 100 else 1000;
@@ -665,6 +692,7 @@ This scenario spawns one actor with a **small mailbox capacity** and then attemp
 ### Drain behavior
 
 <!-- snippet: tools/stress.zig#func=drain_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L380-L385"><code>tools/stress.zig#L380-L385</code></a></div>
 ```zig title="drain_behavior(): stop the loop after one message" showLineNumbers=380
 fn drain_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -682,6 +710,7 @@ This actor is intentionally boring:
 ### Scenario wiring
 
 <!-- snippet: tools/stress.zig#func=runMailboxPressure -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L387-L433"><code>tools/stress.zig#L387-L433</code></a></div>
 ```zig title="runMailboxPressure(): overfill a mailbox and check observer counters" showLineNumbers=387
 fn runMailboxPressure(cfg: RunConfig) !void {
     const cap: u32 = 8;
@@ -741,6 +770,7 @@ What this validates:
 ## Full listing (for reference)
 
 <!-- snippet: tools/stress.zig#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/tools/stress.zig#L1-L433"><code>tools/stress.zig#L1-L433</code></a></div>
 ```zig title="tools/stress.zig" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");

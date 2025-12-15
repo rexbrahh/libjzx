@@ -31,7 +31,9 @@ npm run start
 
 ## Keeping deep-dive pages in sync with source
 
-Some deep-dive pages embed full source files with line numbers. To keep those code blocks synced:
+Deep-dive pages embed source snippets with line numbers and a “Source: <path>#Lx-Ly” link back to GitHub.
+
+To keep those code blocks (and their line ranges) synced with the repo:
 
 ```sh
 cd docs
@@ -43,6 +45,13 @@ CI runs a sync check:
 ```sh
 cd docs
 npm run check:deep-dive
+```
+
+If you intentionally want to update the **versioned** deep-dive snapshots too (rare), run:
+
+```sh
+cd docs
+npm run sync:deep-dive:all
 ```
 
 ## Deep-dive coverage check

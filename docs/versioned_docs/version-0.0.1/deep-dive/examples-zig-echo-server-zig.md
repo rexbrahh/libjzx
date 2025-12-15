@@ -14,6 +14,13 @@ It demonstrates:
 - a simple “read → write back” state machine with backpressure
 - correct memory ownership when receiving runtime-allocated I/O events
 
+## Cross-links
+
+- Run it: [Quickstart](../getting-started/quickstart#build-and-run-the-examples)
+- I/O APIs: [watch/unwatch (`include/jzx/jzx.h`)](include-jzx-jzx-h#timers-and-io)
+- Backend bridge: [libxev integration (`src/jzx_xev.zig`)](src-jzx-xev-zig)
+- Under the hood: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+
 ## High-level architecture
 
 There are two actor types:
@@ -41,6 +48,7 @@ That means the actor must:
 ## Imports and state structs
 
 <!-- snippet: examples/zig/echo_server.zig#L1-L15 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L1-L15"><code>examples/zig/echo_server.zig#L1-L15</code></a></div>
 ```zig title="Imports and actor state" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");
@@ -78,6 +86,7 @@ The “pending” fields implement a simple, explicit backpressure model:
 Accepted sockets need to be non-blocking, because readiness-driven loops must treat `WouldBlock` as “try again later”.
 
 <!-- snippet: examples/zig/echo_server.zig#func=setNonBlocking -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L17-L22"><code>examples/zig/echo_server.zig#L17-L22</code></a></div>
 ```zig title="setNonBlocking(): fcntl(SETFL) + O_NONBLOCK" showLineNumbers=17
 fn setNonBlocking(fd: posix.fd_t) !void {
     const raw = try posix.fcntl(fd, posix.F.GETFL, 0);
@@ -100,6 +109,7 @@ The conversions (`@intCast`, `@bitCast`) are Zig’s way of making the integer/b
 This prevents leaking sockets into child processes if the program ever `exec`s something.
 
 <!-- snippet: examples/zig/echo_server.zig#func=setCloexec -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L24-L27"><code>examples/zig/echo_server.zig#L24-L27</code></a></div>
 ```zig title="setCloexec(): fcntl(SETFD) + FD_CLOEXEC" showLineNumbers=24
 fn setCloexec(fd: posix.fd_t) !void {
     const flags = try posix.fcntl(fd, posix.F.GETFD, 0);
@@ -117,6 +127,7 @@ The connection actor handles two kinds of readiness:
 ### Decode runtime I/O messages
 
 <!-- snippet: examples/zig/echo_server.zig#L29-L40 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L29-L39"><code>examples/zig/echo_server.zig#L29-L39</code></a></div>
 ```zig title="Filter messages and decode jzx_io_event" showLineNumbers=29
 fn connBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
@@ -148,6 +159,7 @@ Key details:
 If there’s pending output, a `WRITE` readiness notification is our chance to flush more bytes.
 
 <!-- snippet: examples/zig/echo_server.zig#L41-L57 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L41-L57"><code>examples/zig/echo_server.zig#L41-L57</code></a></div>
 ```zig title="WRITE readiness: continue writing buffered data" showLineNumbers=41
     if ((ev.readiness & c.JZX_IO_WRITE) != 0 and state.pending_off < state.pending_len) {
         const slice = state.buf[state.pending_off..state.pending_len];
@@ -190,6 +202,7 @@ Why flip the watch interest:
 The echo path reads into `buf`, then immediately attempts to write the same bytes back.
 
 <!-- snippet: examples/zig/echo_server.zig#L59-L93 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L59-L93"><code>examples/zig/echo_server.zig#L59-L93</code></a></div>
 ```zig title="READ readiness: read into buffer, then try to echo back" showLineNumbers=59
     if ((ev.readiness & c.JZX_IO_READ) != 0 and state.pending_len == 0) {
         const n = posix.read(state.fd, state.buf[0..]) catch |err| switch (err) {
@@ -242,6 +255,7 @@ Important details:
 ### Final cleanup invariants
 
 <!-- snippet: examples/zig/echo_server.zig#L95-L101 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L95-L101"><code>examples/zig/echo_server.zig#L95-L101</code></a></div>
 ```zig title="Normalize pending counters" showLineNumbers=95
     if (state.pending_off >= state.pending_len) {
         state.pending_len = 0;
@@ -268,6 +282,7 @@ The listener actor:
 ### Decode runtime I/O messages
 
 <!-- snippet: examples/zig/echo_server.zig#L103-L117 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L103-L117"><code>examples/zig/echo_server.zig#L103-L117</code></a></div>
 ```zig title="listenerBehavior(): filter to SYS_IO + READ readiness" showLineNumbers=103
 fn listenerBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
@@ -293,6 +308,7 @@ Same ownership rule as the connection actor:
 ### Accept loop + spawn connection actor
 
 <!-- snippet: examples/zig/echo_server.zig#between=while (true) {|return c.JZX_BEHAVIOR_OK; -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L119-L161"><code>examples/zig/echo_server.zig#L119-L161</code></a></div>
 ```zig title="Accept as many clients as possible, spawn one actor per client" showLineNumbers=119
     while (true) {
         const client_fd = posix.accept(state.fd, null, null, 0) catch |err| switch (err) {
@@ -352,6 +368,7 @@ Key details:
 ### Keep the listener alive
 
 <!-- snippet: examples/zig/echo_server.zig#L163-L164 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L163-L164"><code>examples/zig/echo_server.zig#L163-L164</code></a></div>
 ```zig title="listenerBehavior(): keep running" showLineNumbers=163
     return c.JZX_BEHAVIOR_OK;
 }
@@ -372,6 +389,7 @@ The `main` function:
 - registers the listening socket for `READ` readiness
 
 <!-- snippet: examples/zig/echo_server.zig#func=main -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L166-L206"><code>examples/zig/echo_server.zig#L166-L206</code></a></div>
 ```zig title="main(): setup and run" showLineNumbers=166
 pub fn main() !void {
     const argv = try std.process.argsAlloc(std.heap.c_allocator);
@@ -427,6 +445,7 @@ Key details:
 ## Full listing (for reference)
 
 <!-- snippet: examples/zig/echo_server.zig#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/echo_server.zig#L1-L206"><code>examples/zig/echo_server.zig#L1-L206</code></a></div>
 ```zig title="examples/zig/echo_server.zig" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");

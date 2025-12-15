@@ -14,11 +14,18 @@ It answers questions like:
 
 This page is written in a “textbook” style: small code snippets surrounded by the explanation of what they mean and why they exist.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- Next: [Build graph — `build.zig`](build-zig)
+- Practical: [Installation](../getting-started/installation)
+
 ## The top-level object
 
 `build.zig.zon` is a Zig struct literal (a “ZON” file) describing the package.
 
 <!-- snippet: build.zig.zon#L1-L5 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig.zon#L1-L5"><code>build.zig.zon#L1-L5</code></a></div>
 ```zig title="Package identity + minimum Zig version" showLineNumbers=1
 .{
     .name = .libjzx,
@@ -43,6 +50,7 @@ What each field means:
 libjzx depends on `libxev`, and the dependency is pinned to a specific archive URL + hash.
 
 <!-- snippet: build.zig.zon#L6-L11 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig.zon#L6-L11"><code>build.zig.zon#L6-L11</code></a></div>
 ```zig title="Dependency table" showLineNumbers=6
     .dependencies = .{
         .libxev = .{
@@ -66,6 +74,7 @@ Key ideas:
 `.paths` tells Zig which repo paths are considered part of the package.
 
 <!-- snippet: build.zig.zon#L12-L25 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig.zon#L12-L25"><code>build.zig.zon#L12-L25</code></a></div>
 ```zig title="Package paths" showLineNumbers=12
     .paths = .{
         "build.zig",
@@ -96,6 +105,7 @@ Notes:
 ## Full listing (for reference)
 
 <!-- snippet: build.zig.zon#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig.zon#L1-L25"><code>build.zig.zon#L1-L25</code></a></div>
 ```zig title="build.zig.zon" showLineNumbers=1
 .{
     .name = .libjzx,

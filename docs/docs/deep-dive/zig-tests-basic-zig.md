@@ -9,9 +9,17 @@ This file is an end-to-end test suite: it exercises the runtime through the publ
 
 This page uses a textbook style: focused snippets with explanation, plus an appendix with the full source.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- What this tests: [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h), [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+- Run it: [Installation](../getting-started/installation) (`zig build test`)
+- Stress complement: [Stress tool (`tools/stress.zig`)](tools-stress-zig)
+
 ## Imports and shared helpers
 
 <!-- snippet: zig/tests/basic.zig#L1-L11 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1-L10"><code>zig/tests/basic.zig#L1-L10</code></a></div>
 ```zig title="Imports and AsyncArgs" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");
@@ -34,6 +42,7 @@ const AsyncArgs = struct {
 ## A minimal “increment and stop” behavior
 
 <!-- snippet: zig/tests/basic.zig#func=increment_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L12-L21"><code>zig/tests/basic.zig#L12-L21</code></a></div>
 ```zig title="increment_behavior()" showLineNumbers=12
 fn increment_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
@@ -64,6 +73,7 @@ Many tests in this file use small, test-owned state structs. They are deliberate
 ### TimerState
 
 <!-- snippet: zig/tests/basic.zig#L23-L26 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L23-L26"><code>zig/tests/basic.zig#L23-L26</code></a></div>
 ```zig title="TimerState: count timer hits until target" showLineNumbers=23
 const TimerState = struct {
     target: u32,
@@ -78,6 +88,7 @@ const TimerState = struct {
 ### ObserverState
 
 <!-- snippet: zig/tests/basic.zig#L28-L35 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L28-L35"><code>zig/tests/basic.zig#L28-L35</code></a></div>
 ```zig title="ObserverState: accumulate lifecycle callbacks" showLineNumbers=28
 const ObserverState = struct {
     start_count: u32 = 0,
@@ -97,6 +108,7 @@ This struct is what makes observer callbacks testable:
 ## Observer hooks used by tests
 
 <!-- snippet: zig/tests/basic.zig#func=observerOnStart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L37-L42"><code>zig/tests/basic.zig#L37-L42</code></a></div>
 ```zig title="observerOnStart()" showLineNumbers=37
 fn observerOnStart(ctx: ?*anyopaque, id: c.jzx_actor_id, name: [*c]const u8) callconv(.c) void {
     _ = name;
@@ -107,6 +119,7 @@ fn observerOnStart(ctx: ?*anyopaque, id: c.jzx_actor_id, name: [*c]const u8) cal
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=observerOnStop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L44-L49"><code>zig/tests/basic.zig#L44-L49</code></a></div>
 ```zig title="observerOnStop()" showLineNumbers=44
 fn observerOnStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exit_reason) callconv(.c) void {
     const state = @as(*ObserverState, @ptrCast(@alignCast(ctx.?)));
@@ -117,6 +130,7 @@ fn observerOnStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exit_reaso
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=observerOnMailboxFull -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L51-L55"><code>zig/tests/basic.zig#L51-L55</code></a></div>
 ```zig title="observerOnMailboxFull()" showLineNumbers=51
 fn observerOnMailboxFull(ctx: ?*anyopaque, target: c.jzx_actor_id) callconv(.c) void {
     const state = @as(*ObserverState, @ptrCast(@alignCast(ctx.?)));
@@ -132,6 +146,7 @@ Why it exists: observer behavior is part of the runtime’s contract, so tests a
 ## Timer behavior used by tests
 
 <!-- snippet: zig/tests/basic.zig#func=timer_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L57-L66"><code>zig/tests/basic.zig#L57-L66</code></a></div>
 ```zig title="timer_behavior()" showLineNumbers=57
 fn timer_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
@@ -166,6 +181,7 @@ Below are all tests in `zig/tests/basic.zig`, grouped by subsystem.
 #### Message delivery: actor receives and processes a message
 
 <!-- snippet: zig/tests/basic.zig#zigtest=actor receives and processes a message -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L68-L89"><code>zig/tests/basic.zig#L68-L89</code></a></div>
 ```zig title="test: actor receives and processes a message" showLineNumbers=68
 test "actor receives and processes a message" {
     var loop = try jzx.Loop.create(null);
@@ -201,6 +217,7 @@ What it’s asserting:
 #### Actor id generations: stale ids are rejected after slot reuse
 
 <!-- snippet: zig/tests/basic.zig#zigtest=actor id generations reject stale ids after slot reuse -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L91-L139"><code>zig/tests/basic.zig#L91-L139</code></a></div>
 ```zig title="test: actor id generations reject stale ids after slot reuse" showLineNumbers=91
 test "actor id generations reject stale ids after slot reuse" {
     var loop = try jzx.Loop.create(null);
@@ -264,6 +281,7 @@ What it’s asserting:
 #### Backpressure: mailbox full returns error
 
 <!-- snippet: zig/tests/basic.zig#zigtest=mailbox full returns error -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L141-L161"><code>zig/tests/basic.zig#L141-L161</code></a></div>
 ```zig title="test: mailbox full returns error" showLineNumbers=141
 test "mailbox full returns error" {
     var loop = try jzx.Loop.create(null);
@@ -296,6 +314,7 @@ What it’s asserting:
 ### Observability (observer hooks)
 
 <!-- snippet: zig/tests/basic.zig#zigtest=observer hooks receive lifecycle + mailbox full -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L163-L200"><code>zig/tests/basic.zig#L163-L200</code></a></div>
 ```zig title="test: observer hooks receive lifecycle + mailbox full" showLineNumbers=163
 test "observer hooks receive lifecycle + mailbox full" {
     var loop = try jzx.Loop.create(null);
@@ -350,6 +369,7 @@ What it’s asserting:
 Async send tests use a helper thread that calls `jzx_send_async`.
 
 <!-- snippet: zig/tests/basic.zig#func=async_sender -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L202-L204"><code>zig/tests/basic.zig#L202-L204</code></a></div>
 ```zig title="async_sender(): helper thread entry" showLineNumbers=202
 fn async_sender(args: AsyncArgs) void {
     _ = c.jzx_send_async(args.loop, args.actor, args.payload, @sizeOf(u32), 2);
@@ -368,6 +388,7 @@ Some tests need to assert **ordering**. The simplest deterministic way is:
 - have the actor verify it receives `0,1,2,...` in order
 
 <!-- snippet: zig/tests/basic.zig#L206-L210 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L206-L210"><code>zig/tests/basic.zig#L206-L210</code></a></div>
 ```zig title="SeqState: expected next value + remaining count" showLineNumbers=206
 const SeqState = struct {
     expected: u32,
@@ -377,6 +398,7 @@ const SeqState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=seq_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L212-L231"><code>zig/tests/basic.zig#L212-L231</code></a></div>
 ```zig title="seq_behavior(): verify strict in-order delivery" showLineNumbers=212
 fn seq_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
@@ -405,6 +427,7 @@ This actor stops as soon as it detects a mismatch, which keeps failures crisp an
 #### async send dispatches message
 
 <!-- snippet: zig/tests/basic.zig#zigtest=async send dispatches message -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L233-L258"><code>zig/tests/basic.zig#L233-L258</code></a></div>
 ```zig title="test: async send dispatches message" showLineNumbers=233
 test "async send dispatches message" {
     var loop = try jzx.Loop.create(null);
@@ -442,6 +465,7 @@ What it’s asserting:
 #### async send wakes blocking loop
 
 <!-- snippet: zig/tests/basic.zig#zigtest=async send wakes blocking loop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L260-L296"><code>zig/tests/basic.zig#L260-L296</code></a></div>
 ```zig title="test: async send wakes blocking loop" showLineNumbers=260
 test "async send wakes blocking loop" {
     var cfg: c.jzx_config = undefined;
@@ -490,6 +514,7 @@ What it’s asserting:
 #### async send preserves FIFO ordering
 
 <!-- snippet: zig/tests/basic.zig#zigtest=async send preserves FIFO ordering -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L298-L342"><code>zig/tests/basic.zig#L298-L342</code></a></div>
 ```zig title="test: async send preserves FIFO ordering" showLineNumbers=298
 test "async send preserves FIFO ordering" {
     const n: u32 = 512;
@@ -548,6 +573,7 @@ What it’s asserting:
 #### timer delivers message
 
 <!-- snippet: zig/tests/basic.zig#zigtest=timer delivers message -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L344-L366"><code>zig/tests/basic.zig#L344-L366</code></a></div>
 ```zig title="test: timer delivers message" showLineNumbers=344
 test "timer delivers message" {
     var loop = try jzx.Loop.create(null);
@@ -582,6 +608,7 @@ What it’s asserting:
 #### cancelled timer does not fire
 
 <!-- snippet: zig/tests/basic.zig#zigtest=cancelled timer does not fire -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L368-L391"><code>zig/tests/basic.zig#L368-L391</code></a></div>
 ```zig title="test: cancelled timer does not fire" showLineNumbers=368
 test "cancelled timer does not fire" {
     var loop = try jzx.Loop.create(null);
@@ -616,6 +643,7 @@ What it’s asserting:
 #### timer drop when actor stops
 
 <!-- snippet: zig/tests/basic.zig#zigtest=timer drop when actor stops -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L393-L414"><code>zig/tests/basic.zig#L393-L414</code></a></div>
 ```zig title="test: timer drop when actor stops" showLineNumbers=393
 test "timer drop when actor stops" {
     var loop = try jzx.Loop.create(null);
@@ -648,6 +676,7 @@ What it’s asserting:
 #### many timers fire
 
 <!-- snippet: zig/tests/basic.zig#zigtest=many timers fire -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L416-L441"><code>zig/tests/basic.zig#L416-L441</code></a></div>
 ```zig title="test: many timers fire" showLineNumbers=416
 test "many timers fire" {
     var loop = try jzx.Loop.create(null);
@@ -685,6 +714,7 @@ What it’s asserting:
 #### timer delivery preserves enqueue order
 
 <!-- snippet: zig/tests/basic.zig#zigtest=timer delivery preserves enqueue order -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L443-L473"><code>zig/tests/basic.zig#L443-L473</code></a></div>
 ```zig title="test: timer delivery preserves enqueue order" showLineNumbers=443
 test "timer delivery preserves enqueue order" {
     var loop = try jzx.Loop.create(null);
@@ -728,6 +758,7 @@ What it’s asserting:
 This test uses a tiny “ping pong” behavior: each actor sends work to its partner.
 
 <!-- snippet: zig/tests/basic.zig#L475-L480 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L475-L480"><code>zig/tests/basic.zig#L475-L480</code></a></div>
 ```zig title="PingPongState: cross-references partner id" showLineNumbers=475
 const PingPongState = struct {
     loop: *c.jzx_loop,
@@ -738,6 +769,7 @@ const PingPongState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=pingPongBehavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L482-L496"><code>zig/tests/basic.zig#L482-L496</code></a></div>
 ```zig title="pingPongBehavior(): send to partner until remaining == 0" showLineNumbers=482
 fn pingPongBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
@@ -757,6 +789,7 @@ fn pingPongBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callco
 ```
 
 <!-- snippet: zig/tests/basic.zig#zigtest=ping pong actors share work fairly -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L498-L523"><code>zig/tests/basic.zig#L498-L523</code></a></div>
 ```zig title="test: ping pong actors share work fairly" showLineNumbers=498
 test "ping pong actors share work fairly" {
     var loop = try jzx.Loop.create(null);
@@ -796,6 +829,7 @@ What it’s asserting:
 This test exercises `jzx.Actor(...)` from the Zig wrapper.
 
 <!-- snippet: zig/tests/basic.zig#L525-L531 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L525-L531"><code>zig/tests/basic.zig#L525-L531</code></a></div>
 ```zig title="Typed message + state" showLineNumbers=525
 const CounterState = struct {
     total: u32 = 0,
@@ -807,6 +841,7 @@ const CounterMsg = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=counterBehavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L533-L537"><code>zig/tests/basic.zig#L533-L537</code></a></div>
 ```zig title="counterBehavior(): typed actor behavior" showLineNumbers=533
 fn counterBehavior(state: *CounterState, msg: *CounterMsg, ctx: jzx.ActorContext) jzx.BehaviorResult {
     _ = ctx;
@@ -816,6 +851,7 @@ fn counterBehavior(state: *CounterState, msg: *CounterMsg, ctx: jzx.ActorContext
 ```
 
 <!-- snippet: zig/tests/basic.zig#zigtest=typed actor increments state -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L539-L557"><code>zig/tests/basic.zig#L539-L557</code></a></div>
 ```zig title="test: typed actor increments state" showLineNumbers=539
 test "typed actor increments state" {
     var loop = try jzx.Loop.create(null);
@@ -848,6 +884,7 @@ What it’s asserting:
 I/O tests use a behavior that expects `JZX_TAG_SYS_IO` and decodes a `jzx_io_event`.
 
 <!-- snippet: zig/tests/basic.zig#func=io_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L559-L573"><code>zig/tests/basic.zig#L559-L573</code></a></div>
 ```zig title="io_behavior(): decode SYS_IO event and free payload" showLineNumbers=559
 fn io_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     const ctx_ptr = @as(*c.jzx_context, @ptrCast(ctx));
@@ -872,6 +909,7 @@ This behavior demonstrates a critical ownership rule:
 - The actor must free it with `jzx_loop_free` (so it goes through the loop allocator).
 
 <!-- snippet: zig/tests/basic.zig#func=pipe_writer -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L575-L578"><code>zig/tests/basic.zig#L575-L578</code></a></div>
 ```zig title="pipe_writer(): make the pipe readable" showLineNumbers=575
 fn pipe_writer(fd: posix.fd_t) void {
     const msg = "ping";
@@ -882,6 +920,7 @@ fn pipe_writer(fd: posix.fd_t) void {
 #### io watcher delivers readiness
 
 <!-- snippet: zig/tests/basic.zig#zigtest=io watcher delivers readiness -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L580-L608"><code>zig/tests/basic.zig#L580-L608</code></a></div>
 ```zig title="test: io watcher delivers readiness" showLineNumbers=580
 test "io watcher delivers readiness" {
     var loop = try jzx.Loop.create(null);
@@ -923,6 +962,7 @@ What it’s asserting:
 #### io rapid watch and unwatch
 
 <!-- snippet: zig/tests/basic.zig#zigtest=io rapid watch and unwatch -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L610-L642"><code>zig/tests/basic.zig#L610-L642</code></a></div>
 ```zig title="test: io rapid watch and unwatch" showLineNumbers=610
 test "io rapid watch and unwatch" {
     var loop = try jzx.Loop.create(null);
@@ -969,6 +1009,7 @@ What it’s asserting:
 Supervision tests use “driver” actors that tick themselves until they observe the expected supervisor state.
 
 <!-- snippet: zig/tests/basic.zig#L644-L646 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L644-L646"><code>zig/tests/basic.zig#L644-L646</code></a></div>
 ```zig title="RestartState: count child runs" showLineNumbers=644
 const RestartState = struct {
     runs: u32 = 0,
@@ -976,6 +1017,7 @@ const RestartState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=scheduleSelf -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L648-L650"><code>zig/tests/basic.zig#L648-L650</code></a></div>
 ```zig title="scheduleSelf(): self-tick via timer" showLineNumbers=648
 fn scheduleSelf(loop: *c.jzx_loop, self: c.jzx_actor_id, ms: u32) void {
     _ = c.jzx_send_after(loop, self, ms, null, 0, 0, null);
@@ -983,6 +1025,7 @@ fn scheduleSelf(loop: *c.jzx_loop, self: c.jzx_actor_id, ms: u32) void {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=failThenStop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L652-L658"><code>zig/tests/basic.zig#L652-L658</code></a></div>
 ```zig title="failThenStop(): fail once, then stop" showLineNumbers=652
 fn failThenStop(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -994,6 +1037,7 @@ fn failThenStop(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.
 ```
 
 <!-- snippet: zig/tests/basic.zig#L660-L666 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L660-L666"><code>zig/tests/basic.zig#L660-L666</code></a></div>
 ```zig title="TransientDriverState: detect one restart" showLineNumbers=660
 const TransientDriverState = struct {
     sup_id: c.jzx_actor_id,
@@ -1005,6 +1049,7 @@ const TransientDriverState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=transientDriver -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L668-L704"><code>zig/tests/basic.zig#L668-L704</code></a></div>
 ```zig title="transientDriver(): drive supervisor until child id changes" showLineNumbers=668
 fn transientDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1048,6 +1093,7 @@ fn transientDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callcon
 #### supervisor restarts transient child once
 
 <!-- snippet: zig/tests/basic.zig#zigtest=supervisor restarts transient child once -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L706-L758"><code>zig/tests/basic.zig#L706-L758</code></a></div>
 ```zig title="test: supervisor restarts transient child once" showLineNumbers=706
 test "supervisor restarts transient child once" {
     var loop = try jzx.Loop.create(null);
@@ -1112,6 +1158,7 @@ What it’s asserting:
 #### Intensity escalation when a child fails repeatedly
 
 <!-- snippet: zig/tests/basic.zig#func=alwaysFail -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L760-L766"><code>zig/tests/basic.zig#L760-L766</code></a></div>
 ```zig title="alwaysFail(): fail every time" showLineNumbers=760
 fn alwaysFail(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1123,6 +1170,7 @@ fn alwaysFail(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c)
 ```
 
 <!-- snippet: zig/tests/basic.zig#L768-L773 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L768-L773"><code>zig/tests/basic.zig#L768-L773</code></a></div>
 ```zig title="EscalationObsState: observe escalations + supervisor stop" showLineNumbers=768
 const EscalationObsState = struct {
     sup_id: c.jzx_actor_id,
@@ -1133,6 +1181,7 @@ const EscalationObsState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=escalationOnSupervisorEscalate -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L775-L780"><code>zig/tests/basic.zig#L775-L780</code></a></div>
 ```zig title="escalationOnSupervisorEscalate(): observer hook" showLineNumbers=775
 fn escalationOnSupervisorEscalate(ctx: ?*anyopaque, supervisor: c.jzx_actor_id) callconv(.c) void {
     const state = @as(*EscalationObsState, @ptrCast(@alignCast(ctx.?)));
@@ -1143,6 +1192,7 @@ fn escalationOnSupervisorEscalate(ctx: ?*anyopaque, supervisor: c.jzx_actor_id) 
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=escalationOnActorStop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L782-L788"><code>zig/tests/basic.zig#L782-L788</code></a></div>
 ```zig title="escalationOnActorStop(): observer hook" showLineNumbers=782
 fn escalationOnActorStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exit_reason) callconv(.c) void {
     const state = @as(*EscalationObsState, @ptrCast(@alignCast(ctx.?)));
@@ -1154,6 +1204,7 @@ fn escalationOnActorStop(ctx: ?*anyopaque, id: c.jzx_actor_id, reason: c.jzx_exi
 ```
 
 <!-- snippet: zig/tests/basic.zig#L790-L796 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L790-L796"><code>zig/tests/basic.zig#L790-L796</code></a></div>
 ```zig title="EscalationDriverState: poll child id until escalation" showLineNumbers=790
 const EscalationDriverState = struct {
     sup_id: c.jzx_actor_id,
@@ -1165,6 +1216,7 @@ const EscalationDriverState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=escalationDriver -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L798-L834"><code>zig/tests/basic.zig#L798-L834</code></a></div>
 ```zig title="escalationDriver(): keep failing new children until supervisor escalates" showLineNumbers=798
 fn escalationDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1206,6 +1258,7 @@ fn escalationDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callco
 ```
 
 <!-- snippet: zig/tests/basic.zig#zigtest=supervisor escalates when intensity exceeded -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L836-L897"><code>zig/tests/basic.zig#L836-L897</code></a></div>
 ```zig title="test: supervisor escalates when intensity exceeded" showLineNumbers=836
 test "supervisor escalates when intensity exceeded" {
     var loop = try jzx.Loop.create(null);
@@ -1279,6 +1332,7 @@ What it’s asserting:
 #### Backoff (constant + exponential)
 
 <!-- snippet: zig/tests/basic.zig#L899-L903 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L899-L903"><code>zig/tests/basic.zig#L899-L903</code></a></div>
 ```zig title="BackoffState: record timestamps across restarts" showLineNumbers=899
 const BackoffState = struct {
     runs: u32 = 0,
@@ -1288,6 +1342,7 @@ const BackoffState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=backoffRecorder -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L905-L918"><code>zig/tests/basic.zig#L905-L918</code></a></div>
 ```zig title="backoffRecorder(): fail once, record timestamps" showLineNumbers=905
 fn backoffRecorder(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1306,6 +1361,7 @@ fn backoffRecorder(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callcon
 ```
 
 <!-- snippet: zig/tests/basic.zig#L920-L927 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L920-L927"><code>zig/tests/basic.zig#L920-L927</code></a></div>
 ```zig title="BackoffDriverState: poll until second run observed" showLineNumbers=920
 const BackoffDriverState = struct {
     sup_id: c.jzx_actor_id,
@@ -1318,6 +1374,7 @@ const BackoffDriverState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=backoffDriver -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L929-L964"><code>zig/tests/basic.zig#L929-L964</code></a></div>
 ```zig title="backoffDriver(): trigger child failure across restarts" showLineNumbers=929
 fn backoffDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1358,6 +1415,7 @@ fn backoffDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(
 ```
 
 <!-- snippet: zig/tests/basic.zig#zigtest=supervisor backoff delays restart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L966-L1019"><code>zig/tests/basic.zig#L966-L1019</code></a></div>
 ```zig title="test: supervisor backoff delays restart" showLineNumbers=966
 test "supervisor backoff delays restart" {
     var loop = try jzx.Loop.create(null);
@@ -1416,6 +1474,7 @@ test "supervisor backoff delays restart" {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=backoffRecorderExp -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1021-L1034"><code>zig/tests/basic.zig#L1021-L1034</code></a></div>
 ```zig title="backoffRecorderExp(): fail once, then stop" showLineNumbers=1021
 fn backoffRecorderExp(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1434,6 +1493,7 @@ fn backoffRecorderExp(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) call
 ```
 
 <!-- snippet: zig/tests/basic.zig#zigtest=supervisor exponential backoff delays restart -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1036-L1089"><code>zig/tests/basic.zig#L1036-L1089</code></a></div>
 ```zig title="test: supervisor exponential backoff delays restart" showLineNumbers=1036
 test "supervisor exponential backoff delays restart" {
     var loop = try jzx.Loop.create(null);
@@ -1494,6 +1554,7 @@ test "supervisor exponential backoff delays restart" {
 #### one_for_all: restart all children when one fails
 
 <!-- snippet: zig/tests/basic.zig#L1091-L1099 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1091-L1099"><code>zig/tests/basic.zig#L1091-L1099</code></a></div>
 ```zig title="DuoShared + DuoState: two children share counters" showLineNumbers=1091
 const DuoShared = struct {
     runs_a: u32 = 0,
@@ -1507,6 +1568,7 @@ const DuoState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=duoBehavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1101-L1119"><code>zig/tests/basic.zig#L1101-L1119</code></a></div>
 ```zig title="duoBehavior(): A runs, B fails once, then both stop" showLineNumbers=1101
 fn duoBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1530,6 +1592,7 @@ fn duoBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c
 ```
 
 <!-- snippet: zig/tests/basic.zig#L1121-L1129 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1121-L1129"><code>zig/tests/basic.zig#L1121-L1129</code></a></div>
 ```zig title="OneForAllDriverState: observe restart of both children" showLineNumbers=1121
 const OneForAllDriverState = struct {
     sup_id: c.jzx_actor_id,
@@ -1543,6 +1606,7 @@ const OneForAllDriverState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=oneForAllDriver -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1131-L1168"><code>zig/tests/basic.zig#L1131-L1168</code></a></div>
 ```zig title="oneForAllDriver(): fail both original children, observe restarts" showLineNumbers=1131
 fn oneForAllDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1585,6 +1649,7 @@ fn oneForAllDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callcon
 ```
 
 <!-- snippet: zig/tests/basic.zig#zigtest=supervisor one_for_all restarts all children -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1170-L1243"><code>zig/tests/basic.zig#L1170-L1243</code></a></div>
 ```zig title="test: supervisor one_for_all restarts all children" showLineNumbers=1170
 test "supervisor one_for_all restarts all children" {
     var loop = try jzx.Loop.create(null);
@@ -1665,6 +1730,7 @@ test "supervisor one_for_all restarts all children" {
 #### rest_for_one: restart downstream children only
 
 <!-- snippet: zig/tests/basic.zig#L1245-L1254 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1245-L1254"><code>zig/tests/basic.zig#L1245-L1254</code></a></div>
 ```zig title="TrioShared + TrioState: three children" showLineNumbers=1245
 const TrioShared = struct {
     hits_a: u32 = 0,
@@ -1679,6 +1745,7 @@ const TrioState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=trioBehavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1256-L1274"><code>zig/tests/basic.zig#L1256-L1274</code></a></div>
 ```zig title="trioBehavior(): B fails to trigger rest_for_one" showLineNumbers=1256
 fn trioBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1702,6 +1769,7 @@ fn trioBehavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.
 ```
 
 <!-- snippet: zig/tests/basic.zig#L1276-L1285 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1276-L1285"><code>zig/tests/basic.zig#L1276-L1285</code></a></div>
 ```zig title="RestForOneDriverState: observe restart of B and C" showLineNumbers=1276
 const RestForOneDriverState = struct {
     sup_id: c.jzx_actor_id,
@@ -1716,6 +1784,7 @@ const RestForOneDriverState = struct {
 ```
 
 <!-- snippet: zig/tests/basic.zig#func=restForOneDriver -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1287-L1332"><code>zig/tests/basic.zig#L1287-L1332</code></a></div>
 ```zig title="restForOneDriver(): fail B, observe downstream restart" showLineNumbers=1287
 fn restForOneDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -1766,6 +1835,7 @@ fn restForOneDriver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callco
 ```
 
 <!-- snippet: zig/tests/basic.zig#zigtest=supervisor rest_for_one restarts downstream children -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1334-L1393"><code>zig/tests/basic.zig#L1334-L1393</code></a></div>
 ```zig title="test: supervisor rest_for_one restarts downstream children" showLineNumbers=1334
 test "supervisor rest_for_one restarts downstream children" {
     var loop = try jzx.Loop.create(null);
@@ -1835,6 +1905,7 @@ test "supervisor rest_for_one restarts downstream children" {
 <summary>Show full <code>zig/tests/basic.zig</code></summary>
 
 <!-- snippet: zig/tests/basic.zig#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/zig/tests/basic.zig#L1-L1393"><code>zig/tests/basic.zig#L1-L1393</code></a></div>
 ```zig title="zig/tests/basic.zig (full source)" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");

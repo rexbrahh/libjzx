@@ -9,9 +9,17 @@ This header is the **public C99 ABI contract** for libjzx. If you’re integrati
 
 The style of this page is intentionally “textbook”: small snippets, then explanation of what each line means and why it exists.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- Implementations: [runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c), [libxev integration (`src/jzx_xev.zig`)](src-jzx-xev-zig)
+- Configuration: [Configuration reference](../reference/config-reference), [Configuration guide](../guides/configuration)
+- Examples: [Quickstart](../getting-started/quickstart)
+
 ## Header envelope (include guard + C++ ABI)
 
 <!-- snippet: include/jzx/jzx.h#L1-L9 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L1-L9"><code>include/jzx/jzx.h#L1-L9</code></a></div>
 ```c title="Header guard and C++ ABI compatibility" showLineNumbers=1
 #ifndef JZX_JZX_H
 #define JZX_JZX_H
@@ -34,6 +42,7 @@ This block is “plumbing” that makes the header safe to include and usable fr
 ## Error model (all APIs speak `jzx_err`)
 
 <!-- snippet: include/jzx/jzx.h#L11-L25 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L11-L25"><code>include/jzx/jzx.h#L11-L25</code></a></div>
 ```c title="Error codes" showLineNumbers=11
 // --- Error Model -----------------------------------------------------------
 
@@ -72,6 +81,7 @@ Each error code exists to make failure modes **explicit and machine-checkable**:
 ## Core identifiers and the opaque loop type
 
 <!-- snippet: include/jzx/jzx.h#L27-L32 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L27-L32"><code>include/jzx/jzx.h#L27-L32</code></a></div>
 ```c title="Opaque handle types" showLineNumbers=27
 // --- Core types ------------------------------------------------------------
 
@@ -88,6 +98,7 @@ typedef struct jzx_loop jzx_loop;
 ## Allocator interface (how the runtime allocates)
 
 <!-- snippet: include/jzx/jzx.h#L34-L38 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L34-L38"><code>include/jzx/jzx.h#L34-L38</code></a></div>
 ```c title="Allocator vtable" showLineNumbers=34
 typedef struct {
     void* (*alloc)(void* ctx, size_t size);
@@ -112,6 +123,7 @@ Practical contracts (based on the current runtime implementation):
 ## Runtime config (knobs that shape scheduling and capacity)
 
 <!-- snippet: include/jzx/jzx.h#L40-L50 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L40-L50"><code>include/jzx/jzx.h#L40-L50</code></a></div>
 ```c title="jzx_config and initialization" showLineNumbers=40
 typedef struct {
     jzx_allocator allocator;
@@ -140,6 +152,7 @@ void jzx_config_init(jzx_config* cfg);
 ## Message envelope and system tags
 
 <!-- snippet: include/jzx/jzx.h#L52-L61 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L52-L61"><code>include/jzx/jzx.h#L52-L61</code></a></div>
 ```c title="jzx_message and system tag space" showLineNumbers=52
 // --- Messaging -------------------------------------------------------------
 
@@ -181,6 +194,7 @@ Payload ownership and lifetime rules (critical):
 ### Execution context
 
 <!-- snippet: include/jzx/jzx.h#L63-L69 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L63-L69"><code>include/jzx/jzx.h#L63-L69</code></a></div>
 ```c title="jzx_context" showLineNumbers=63
 // --- Behavior --------------------------------------------------------------
 
@@ -200,6 +214,7 @@ typedef struct {
 ### Behavior result (what the actor returns)
 
 <!-- snippet: include/jzx/jzx.h#L71-L75 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L71-L75"><code>include/jzx/jzx.h#L71-L75</code></a></div>
 ```c title="jzx_behavior_result" showLineNumbers=71
 typedef enum {
     JZX_BEHAVIOR_OK = 0,
@@ -217,6 +232,7 @@ This enum is how a behavior tells the runtime what to do:
 ### Actor lifecycle status (used in system messages)
 
 <!-- snippet: include/jzx/jzx.h#L77-L84 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L77-L84"><code>include/jzx/jzx.h#L77-L84</code></a></div>
 ```c title="jzx_actor_status" showLineNumbers=77
 // Actor status codes for lifecycle/supervision messages.
 typedef enum {
@@ -233,6 +249,7 @@ These statuses are used when reporting lifecycle/supervision events (e.g., child
 ### Exit reason (why an actor stopped)
 
 <!-- snippet: include/jzx/jzx.h#L86-L90 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L86-L90"><code>include/jzx/jzx.h#L86-L90</code></a></div>
 ```c title="jzx_exit_reason" showLineNumbers=86
 typedef enum {
     JZX_EXIT_NORMAL = 0,
@@ -248,17 +265,19 @@ Separating “status” from “exit reason” makes it possible to communicate 
 ### Behavior function pointer type
 
 <!-- snippet: include/jzx/jzx.h#L92-L92 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L92"><code>include/jzx/jzx.h#L92</code></a></div>
 ```c title="jzx_behavior_fn" showLineNumbers=92
 typedef jzx_behavior_result (*jzx_behavior_fn)(jzx_context* ctx, const jzx_message* msg);
 ```
 
 This is the core ABI: the runtime calls this function for each delivered message.
 
-## Supervision types (policy, strategy, backoff)
+## Supervision types (policy, strategy, backoff) {#supervision}
 
 ### Child mode (restart policy)
 
 <!-- snippet: include/jzx/jzx.h#L94-L98 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L94-L98"><code>include/jzx/jzx.h#L94-L98</code></a></div>
 ```c title="jzx_child_mode" showLineNumbers=94
 typedef enum {
     JZX_CHILD_PERMANENT,
@@ -274,6 +293,7 @@ typedef enum {
 ### Supervisor strategy (how sibling restarts happen)
 
 <!-- snippet: include/jzx/jzx.h#L100-L104 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L100-L104"><code>include/jzx/jzx.h#L100-L104</code></a></div>
 ```c title="jzx_supervisor_strategy" showLineNumbers=100
 typedef enum {
     JZX_SUP_ONE_FOR_ONE,
@@ -289,6 +309,7 @@ typedef enum {
 ### Backoff model (how restart delays evolve)
 
 <!-- snippet: include/jzx/jzx.h#L106-L110 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L106-L110"><code>include/jzx/jzx.h#L106-L110</code></a></div>
 ```c title="jzx_backoff_type" showLineNumbers=106
 typedef enum {
     JZX_BACKOFF_NONE,
@@ -299,11 +320,12 @@ typedef enum {
 
 Backoff exists to prevent restart storms from saturating the system.
 
-## Spawning API (creating actors and supervisors)
+## Spawning API (creating actors and supervisors) {#spawning}
 
 ### Spawn a single actor
 
 <!-- snippet: include/jzx/jzx.h#L112-L122 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L112-L122"><code>include/jzx/jzx.h#L112-L122</code></a></div>
 ```c title="jzx_spawn_opts and jzx_spawn()" showLineNumbers=112
 // --- Spawning --------------------------------------------------------------
 
@@ -328,6 +350,7 @@ jzx_err jzx_spawn(jzx_loop* loop, const jzx_spawn_opts* opts, jzx_actor_id* out_
 ### Describe a supervised child
 
 <!-- snippet: include/jzx/jzx.h#L124-L132 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L124-L132"><code>include/jzx/jzx.h#L124-L132</code></a></div>
 ```c title="jzx_child_spec" showLineNumbers=124
 typedef struct {
     jzx_behavior_fn behavior;
@@ -347,6 +370,7 @@ typedef struct {
 ### Supervisor configuration and spawn
 
 <!-- snippet: include/jzx/jzx.h#L134-L152 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L134-L152"><code>include/jzx/jzx.h#L134-L152</code></a></div>
 ```c title="Supervisor spec and spawn" showLineNumbers=134
 typedef struct {
     jzx_supervisor_strategy strategy;
@@ -376,9 +400,10 @@ Key fields:
 - `jzx_spawn_supervisor`: creates a supervisor (and typically spawns its children).
 - `jzx_supervisor_child_id`: maps a child index to the current child actor id.
 
-## Loop lifecycle (create/run/stop/destroy)
+## Loop lifecycle (create/run/stop/destroy) {#loop-lifecycle}
 
 <!-- snippet: include/jzx/jzx.h#L154-L160 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L154-L160"><code>include/jzx/jzx.h#L154-L160</code></a></div>
 ```c title="Loop lifecycle APIs" showLineNumbers=154
 // --- Loop management -------------------------------------------------------
 
@@ -395,9 +420,10 @@ void jzx_loop_free(jzx_loop* loop, void* ptr);
 - `jzx_loop_destroy`: shuts down and frees the loop.
 - `jzx_loop_free`: frees memory that was allocated by the loop’s allocator.
 
-## Observability (observer callbacks)
+## Observability (observer callbacks) {#observability}
 
 <!-- snippet: include/jzx/jzx.h#L162-L171 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L162-L171"><code>include/jzx/jzx.h#L162-L171</code></a></div>
 ```c title="Observer callbacks" showLineNumbers=162
 typedef struct {
     void (*on_actor_start)(void* ctx, jzx_actor_id id, const char* name);
@@ -425,9 +451,10 @@ Callback threading and reentrancy (practical guidance):
   - don’t call back into libjzx from within an observer callback unless you’ve audited the path for recursion/deadlock.
   - keep callbacks fast; offload heavy work to another queue/thread if needed.
 
-## Messaging API (enqueue work for actors)
+## Messaging API (enqueue work for actors) {#messaging}
 
 <!-- snippet: include/jzx/jzx.h#L173-L182 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L173-L182"><code>include/jzx/jzx.h#L173-L182</code></a></div>
 ```c title="Send and lifecycle control" showLineNumbers=173
 // --- Messaging API ---------------------------------------------------------
 
@@ -451,9 +478,10 @@ The actor control functions exist to request termination externally:
 - `jzx_actor_stop`: request a graceful stop.
 - `jzx_actor_fail`: force a failure (supervision should react).
 
-## Timers and I/O (time- and fd-triggered messages)
+## Timers and I/O (time- and fd-triggered messages) {#timers-and-io}
 
 <!-- snippet: include/jzx/jzx.h#L184-L212 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L184-L212"><code>include/jzx/jzx.h#L184-L212</code></a></div>
 ```c title="Timers, fd watches, and system payloads" showLineNumbers=184
 // --- Timers & IO -----------------------------------------------------------
 
@@ -506,6 +534,7 @@ Supervision system tags:
 ## Footer (close C++ ABI + end include guard)
 
 <!-- snippet: include/jzx/jzx.h#L214-L218 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L214-L218"><code>include/jzx/jzx.h#L214-L218</code></a></div>
 ```c title="C++ ABI close + header guard end" showLineNumbers=214
 #ifdef __cplusplus
 }

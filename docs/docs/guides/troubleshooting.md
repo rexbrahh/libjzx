@@ -30,3 +30,10 @@ If you see `pkg-config` errors:
 
 - Ensure you’re running the same commands as CI (`zig build fmt`, `zig build test`, `zig build stress`).
 - Check for environment-sensitive assumptions (paths, temp dirs, clock/timeouts).
+
+## See also
+
+- [Installation](../getting-started/installation)
+- Build system deep dive:
+  - [`build.zig.zon`](../deep-dive/build-zig-zon)
+  - [`build.zig`](../deep-dive/build-zig)

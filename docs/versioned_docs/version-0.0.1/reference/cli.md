@@ -19,6 +19,10 @@ zig build stress
 zig build fmt
 ```
 
+Where those commands are wired:
+
+- [`build.zig`](../deep-dive/build-zig)
+
 ## Installed binaries
 
 After building, executables are installed under `zig-out/bin/`.
@@ -45,3 +49,10 @@ Flags:
   - `--timers`
   - `--restarts`
   - `--mailbox`
+
+## See also
+
+- [Quickstart](../getting-started/quickstart)
+- Deep dive walkthroughs:
+  - [Examples](../deep-dive/source-index#examples)
+  - [Stress tool (`tools/stress.zig`)](../deep-dive/tools-stress-zig)

@@ -175,6 +175,30 @@
   color: var(--jzx-white);
 }
 
+/* Deep-dive snippet source links (GitHub line anchors). */
+.jzx-source {
+  margin: 0.35rem 0 0.25rem;
+  font-size: 0.85rem;
+  color: var(--jzx-gray-500);
+}
+
+.jzx-source a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.jzx-source code {
+  color: var(--jzx-gray-400);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.jzx-source a:hover code {
+  color: var(--jzx-blue);
+  border-color: var(--jzx-blue);
+}
+
 /* Search bar: keep it monochrome and high-contrast. */
 .navbar__search-input,
 .DocSearch-Button {

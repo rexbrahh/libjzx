@@ -34,7 +34,8 @@ At a high level:
 
 The runtime is designed to be single-process and “loop-thread owned”:
 
-- Actor behaviors run on the **loop thread** (the thread calling `jzx_loop_run`).
+- Actor behaviors run on the **loop thread** (the thread calling
+  [`jzx_loop_run`](../deep-dive/include-jzx-jzx-h#loop-lifecycle)).
 - Actor mailboxes, the actor table, supervision state, and the run queue are all treated as **single-threaded data structures**.
 
 There are two deliberate exceptions where other threads can participate safely:
@@ -43,10 +44,25 @@ There are two deliberate exceptions where other threads can participate safely:
    - The loop starts a dedicated timer thread.
    - When a timer fires, the timer thread enqueues a message via the async queue (it does not directly mutate actor mailboxes).
 2. **Cross-thread sends**
-   - `jzx_send_async` is designed to be thread-safe:
+   - [`jzx_send_async`](../deep-dive/include-jzx-jzx-h#messaging) is
+     designed to be thread-safe:
      - it enqueues into an internal async queue protected by a mutex
      - it wakes the loop so the loop thread can deliver the message safely
 
 Practical safety rule:
 
 - Treat everything except `jzx_send_async` as “call from the loop thread (or before the loop starts)”.
+
+## Where to read in code
+
+Core surfaces:
+
+- Public API + types: [C ABI (`include/jzx/jzx.h`)](../deep-dive/include-jzx-jzx-h)
+- Runtime internals: [internal structs (`src/jzx_internal.h`)](../deep-dive/src-jzx-internal-h)
+- Scheduler/mailboxes/supervision/timers: [runtime core (`src/jzx_runtime.c`)](../deep-dive/src-jzx-runtime-c)
+- I/O watchers + wakeups: [libxev integration (`src/jzx_xev.zig`)](../deep-dive/src-jzx-xev-zig)
+
+Related docs:
+
+- [Quickstart](../getting-started/quickstart)
+- [Configuration reference](../reference/config-reference)

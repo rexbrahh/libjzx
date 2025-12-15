@@ -13,9 +13,16 @@ This is the Zig equivalent of the tiny C “hello actor” example:
 
 It’s also a good “FFI hygiene” example because it shows how to write a Zig function that matches the **C ABI behavior signature**.
 
+## Cross-links
+
+- Run it: [Quickstart](../getting-started/quickstart#build-and-run-the-examples)
+- APIs used: [Zig wrapper (`zig/jzx/lib.zig`)](zig-jzx-lib-zig), [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h#loop-lifecycle)
+- Under the hood: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+
 ## Imports
 
 <!-- snippet: examples/zig/ping.zig#L1-L3 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/ping.zig#L1-L3"><code>examples/zig/ping.zig#L1-L3</code></a></div>
 ```zig title="Imports" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");
@@ -31,6 +38,7 @@ const c = jzx.c;
 The behavior signature uses C pointer types and `callconv(.c)` so the runtime can call it.
 
 <!-- snippet: examples/zig/ping.zig#func=print_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/ping.zig#L5-L10"><code>examples/zig/ping.zig#L5-L10</code></a></div>
 ```zig title="print_behavior(): print and stop" showLineNumbers=5
 fn print_behavior(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -55,6 +63,7 @@ Deep explanation:
 ## main(): create loop, spawn, send, run
 
 <!-- snippet: examples/zig/ping.zig#func=main -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/ping.zig#L12-L31"><code>examples/zig/ping.zig#L12-L31</code></a></div>
 ```zig title="main(): spawn and run" showLineNumbers=12
 pub fn main() !void {
     var loop = try jzx.Loop.create(null);
@@ -92,6 +101,7 @@ What’s happening:
 ## Full listing (for reference)
 
 <!-- snippet: examples/zig/ping.zig#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/ping.zig#L1-L31"><code>examples/zig/ping.zig#L1-L31</code></a></div>
 ```zig title="examples/zig/ping.zig" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");

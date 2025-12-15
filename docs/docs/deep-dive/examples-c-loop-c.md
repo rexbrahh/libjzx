@@ -13,9 +13,16 @@ This file is the smallest “hello actor” for libjzx in plain C:
 
 Because it’s small, it’s a great first place to understand how the C ABI fits together.
 
+## Cross-links
+
+- Public APIs used: [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h)
+- Under the hood: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+- Run it: [Quickstart](../getting-started/quickstart), [Installation](../getting-started/installation)
+
 ## Includes
 
 <!-- snippet: examples/c/loop.c#L1-L3 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/loop.c#L1-L3"><code>examples/c/loop.c#L1-L3</code></a></div>
 ```c title="Includes" showLineNumbers=1
 #include "jzx/jzx.h"
 
@@ -30,6 +37,7 @@ Because it’s small, it’s a great first place to understand how the C ABI fit
 In libjzx, an “actor” is just a callback function (`behavior`) plus a state pointer.
 
 <!-- snippet: examples/c/loop.c#func=print_behavior -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/loop.c#L5-L9"><code>examples/c/loop.c#L5-L9</code></a></div>
 ```c title="print_behavior(): prints and stops" showLineNumbers=5
 static jzx_behavior_result print_behavior(jzx_context* ctx, const jzx_message* msg) {
     (void)msg;
@@ -59,6 +67,7 @@ What each piece is doing:
 ### Config + loop creation
 
 <!-- snippet: examples/c/loop.c#between=int main(void)|jzx_spawn_opts opts -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/loop.c#L11-L18"><code>examples/c/loop.c#L11-L18</code></a></div>
 ```c title="Initialize config and create a loop" showLineNumbers=11
 int main(void) {
     jzx_config cfg;
@@ -80,6 +89,7 @@ Key ideas:
 ### Spawn options
 
 <!-- snippet: examples/c/loop.c#between=jzx_spawn_opts opts = {|jzx_actor_id actor_id -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/loop.c#L20-L26"><code>examples/c/loop.c#L20-L26</code></a></div>
 ```c title="jzx_spawn_opts: describe the actor" showLineNumbers=20
     jzx_spawn_opts opts = {
         .behavior = print_behavior,
@@ -101,6 +111,7 @@ What each field means:
 ### Spawn, send, run, destroy
 
 <!-- snippet: examples/c/loop.c#L27-L38 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/loop.c#L27-L38"><code>examples/c/loop.c#L27-L38</code></a></div>
 ```c title="Create actor, send one message, run" showLineNumbers=27
     jzx_actor_id actor_id = 0;
     if (jzx_spawn(loop, &opts, &actor_id) != JZX_OK) {
@@ -131,6 +142,7 @@ The flow:
 ## Full listing (for reference)
 
 <!-- snippet: examples/c/loop.c#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/c/loop.c#L1-L38"><code>examples/c/loop.c#L1-L38</code></a></div>
 ```c title="examples/c/loop.c" showLineNumbers=1
 #include "jzx/jzx.h"
 

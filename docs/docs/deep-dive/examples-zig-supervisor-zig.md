@@ -16,9 +16,17 @@ It shows:
   - periodically polls supervisor child ids
   - stops the loop deterministically
 
+## Cross-links
+
+- Run it: [Quickstart](../getting-started/quickstart#build-and-run-the-examples)
+- Public API knobs: [Supervisor APIs (`include/jzx/jzx.h`)](include-jzx-jzx-h#spawning)
+- Under the hood: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+- Stress complement: [Stress tool (`tools/stress.zig`)](tools-stress-zig)
+
 ## Imports
 
 <!-- snippet: examples/zig/supervisor.zig#L1-L3 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L1-L3"><code>examples/zig/supervisor.zig#L1-L3</code></a></div>
 ```zig title="Imports" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");
@@ -32,6 +40,7 @@ This example uses the C ABI layer (`c.*`) for supervision structs and calls, and
 Child A keeps a bit of state to count how many times it has run.
 
 <!-- snippet: examples/zig/supervisor.zig#L5-L7 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L5-L7"><code>examples/zig/supervisor.zig#L5-L7</code></a></div>
 ```zig title="ChildState" showLineNumbers=5
 const ChildState = struct {
     runs: u32 = 0,
@@ -41,6 +50,7 @@ const ChildState = struct {
 The behavior:
 
 <!-- snippet: examples/zig/supervisor.zig#func=failOnceThenStop -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L9-L20"><code>examples/zig/supervisor.zig#L9-L20</code></a></div>
 ```zig title="failOnceThenStop(): FAIL on first run, STOP on second" showLineNumbers=9
 fn failOnceThenStop(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -70,6 +80,7 @@ Deep explanation:
 Child B has no state; it stops on the first message it receives.
 
 <!-- snippet: examples/zig/supervisor.zig#func=stopImmediately -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L22-L27"><code>examples/zig/supervisor.zig#L22-L27</code></a></div>
 ```zig title="stopImmediately(): STOP on first message" showLineNumbers=22
 fn stopImmediately(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -84,6 +95,7 @@ fn stopImmediately(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callcon
 The driver actor uses a tiny helper to schedule a message to itself.
 
 <!-- snippet: examples/zig/supervisor.zig#func=scheduleSelf -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L29-L31"><code>examples/zig/supervisor.zig#L29-L31</code></a></div>
 ```zig title="scheduleSelf(): send_after wrapper" showLineNumbers=29
 fn scheduleSelf(loop: *c.jzx_loop, id: c.jzx_actor_id, ms: u32) void {
     _ = c.jzx_send_after(loop, id, ms, null, 0, 0, null);
@@ -106,6 +118,7 @@ The driver’s purpose is to make the supervisor demo deterministic:
 ### Driver state
 
 <!-- snippet: examples/zig/supervisor.zig#L33-L38 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L33-L38"><code>examples/zig/supervisor.zig#L33-L38</code></a></div>
 ```zig title="DriverState" showLineNumbers=33
 const DriverState = struct {
     sup_id: c.jzx_actor_id,
@@ -125,6 +138,7 @@ What each field means:
 ### Driver behavior
 
 <!-- snippet: examples/zig/supervisor.zig#func=driver -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L40-L73"><code>examples/zig/supervisor.zig#L40-L73</code></a></div>
 ```zig title="driver(): poll child ids, kick children, stop loop when done" showLineNumbers=40
 fn driver(ctx: [*c]c.jzx_context, msg: [*c]const c.jzx_message) callconv(.c) c.jzx_behavior_result {
     _ = msg;
@@ -178,6 +192,7 @@ How it works:
 ## main(): spawn supervisor + driver, run, report
 
 <!-- snippet: examples/zig/supervisor.zig#func=main -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L75-L142"><code>examples/zig/supervisor.zig#L75-L142</code></a></div>
 ```zig title="main(): wire it all together" showLineNumbers=75
 pub fn main() !void {
     var loop = try jzx.Loop.create(null);
@@ -268,6 +283,7 @@ The expected outcome:
 ## Full listing (for reference)
 
 <!-- snippet: examples/zig/supervisor.zig#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/examples/zig/supervisor.zig#L1-L142"><code>examples/zig/supervisor.zig#L1-L142</code></a></div>
 ```zig title="examples/zig/supervisor.zig" showLineNumbers=1
 const std = @import("std");
 const jzx = @import("jzx");

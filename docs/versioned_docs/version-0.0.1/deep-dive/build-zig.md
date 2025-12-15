@@ -20,9 +20,19 @@ It creates:
 
 This page explains the build graph in “textbook” style: small snippets with the explanation immediately around them.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- Previous: [Dependency manifest — `build.zig.zon`](build-zig-zon)
+- Runtime referenced here:
+  - [Runtime core — `src/jzx_runtime.c`](src-jzx-runtime-c)
+  - [libxev integration — `src/jzx_xev.zig`](src-jzx-xev-zig)
+- Practical: [Installation](../getting-started/installation), [Quickstart](../getting-started/quickstart)
+
 ## Importing Zig’s build API
 
 <!-- snippet: build.zig#L1-L1 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L1"><code>build.zig#L1</code></a></div>
 ```zig title="Zig build API entry" showLineNumbers=1
 const std = @import("std");
 ```
@@ -39,6 +49,7 @@ The runtime is compiled as a Zig module that includes:
 - a dependency import named `xev`
 
 <!-- snippet: build.zig#L3-L20 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L3-L20"><code>build.zig#L3-L20</code></a></div>
 ```zig title="makeRuntimeModule(): create a mixed Zig+C module" showLineNumbers=3
 fn makeRuntimeModule(
     b: *std.Build,
@@ -83,6 +94,7 @@ Zig calls `build(b)` as the root of the build graph. Everything else hangs off o
 ### Target and optimization options
 
 <!-- snippet: build.zig#L22-L28 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L22-L27"><code>build.zig#L22-L27</code></a></div>
 ```zig title="Target/optimize + dependency import" showLineNumbers=22
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -109,6 +121,7 @@ This repo builds both:
 - a **shared** library for dynamic linking / FFI experimentation
 
 <!-- snippet: build.zig#L29-L45 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L29-L44"><code>build.zig#L29-L44</code></a></div>
 ```zig title="Static + shared libraries" showLineNumbers=29
     const static_module = makeRuntimeModule(b, target, optimize, xev_module);
     const static_lib = b.addLibrary(.{
@@ -138,6 +151,7 @@ Notes:
 ### Installing public headers
 
 <!-- snippet: build.zig#L46-L51 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L46-L51"><code>build.zig#L46-L51</code></a></div>
 ```zig title="Install include/ as headers" showLineNumbers=46
     const install_headers = b.addInstallDirectory(.{
         .source_dir = b.path("include"),
@@ -162,6 +176,7 @@ Why the explicit `dependOn`:
 The Zig wrapper (`zig/jzx/lib.zig`) is exposed as a build module named `"jzx"`.
 
 <!-- snippet: build.zig#L53-L60 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L53-L60"><code>build.zig#L53-L60</code></a></div>
 ```zig title="Expose zig/jzx/lib.zig as module 'jzx'" showLineNumbers=53
     const jzx_module = b.addModule("jzx", .{
         .root_source_file = b.path("zig/jzx/lib.zig"),
@@ -183,6 +198,7 @@ Why it’s wired this way:
 The test suite is a Zig test artifact built from `zig/tests/basic.zig`.
 
 <!-- snippet: build.zig#L62-L72 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L62-L72"><code>build.zig#L62-L72</code></a></div>
 ```zig title="Test step wiring" showLineNumbers=62
     const tests_module = b.createModule(.{
         .root_source_file = b.path("zig/tests/basic.zig"),
@@ -209,6 +225,7 @@ The “shape” here is:
 The examples are installed as executables under `zig-out/bin/`.
 
 <!-- snippet: build.zig#L74-L127 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L74-L126"><code>build.zig#L74-L126</code></a></div>
 ```zig title="Examples step wiring" showLineNumbers=74
     const example_module = b.createModule(.{
         .root_source_file = b.path("examples/zig/ping.zig"),
@@ -280,6 +297,7 @@ Important subtlety:
 The stress tool is a normal executable wired into a named step.
 
 <!-- snippet: build.zig#L128-L143 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L128-L143"><code>build.zig#L128-L143</code></a></div>
 ```zig title="Stress tool step wiring" showLineNumbers=128
     const stress_module = b.createModule(.{
         .root_source_file = b.path("tools/stress.zig"),
@@ -308,6 +326,7 @@ The important UX detail is `addArgs(&.{"--smoke"})`:
 The `fmt` step is a curated list of Zig source files to run `zig fmt` on.
 
 <!-- snippet: build.zig#L145-L158 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L145-L158"><code>build.zig#L145-L158</code></a></div>
 ```zig title="zig fmt step" showLineNumbers=145
     const fmt = b.addFmt(.{ .paths = &.{
         "build.zig",
@@ -333,6 +352,7 @@ Why the list is explicit (instead of formatting “everything”):
 ## Full listing (for reference)
 
 <!-- snippet: build.zig#all -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L1-L158"><code>build.zig#L1-L158</code></a></div>
 ```zig title="build.zig" showLineNumbers=1
 const std = @import("std");
 

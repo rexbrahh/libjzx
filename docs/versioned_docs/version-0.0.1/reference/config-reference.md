@@ -20,7 +20,9 @@ This means you can typically:
 
 ## Defaults at a glance
 
-Defaults are defined in `src/jzx_runtime.c` in `jzx_config_init()` and `apply_defaults()`.
+Defaults are defined in the runtime core:
+
+- [`jzx_config_init()` and `apply_defaults()`](../deep-dive/src-jzx-runtime-c#config-helpers-and-loop-lifecycle-public-abi-entry-points)
 
 Current defaults:
 
@@ -133,3 +135,4 @@ Why it exists:
 For deep-dive walkthroughs, start at:
 
 - [Source index](../deep-dive/source-index)
+- [C ABI (`include/jzx/jzx.h`)](../deep-dive/include-jzx-jzx-h)

@@ -2,11 +2,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const isCheckMode = process.argv.includes('--check');
+const includeVersions =
+  process.argv.includes('--include-versions') || process.argv.includes('--all');
 
 const docsRoot = process.cwd();
 const repoRoot = path.resolve(docsRoot, '..');
 
-const deepDiveRoot = path.join(docsRoot, 'docs', 'deep-dive');
+const deepDiveRoots = [path.join(docsRoot, 'docs', 'deep-dive')];
+if (includeVersions) {
+  const versioned = path.join(docsRoot, 'versioned_docs');
+  if (fs.existsSync(versioned)) {
+    for (const entry of fs.readdirSync(versioned, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      if (!entry.name.startsWith('version-')) continue;
+      const root = path.join(versioned, entry.name, 'deep-dive');
+      if (fs.existsSync(root)) deepDiveRoots.push(root);
+    }
+  }
+}
+
+const defaultBranch = process.env.DOCS_DEFAULT_BRANCH ?? 'main';
+const githubRepo = process.env.GITHUB_REPOSITORY ?? 'rexbrahh/libjzx';
+const githubBaseUrl = `https://github.com/${githubRepo}/blob/${defaultBranch}/`;
 
 function normalizeNewlines(input) {
   return input.replace(/\r\n/g, '\n');
@@ -456,6 +473,19 @@ function extractSnippet(spec) {
   throw new Error(`Unhandled snippet kind: ${spec.kind}`);
 }
 
+function sourceHref(relPath, startLine, endLine) {
+  const base = `${githubBaseUrl}${relPath}`;
+  if (!startLine || startLine <= 0) return base;
+  if (!endLine || endLine <= 0 || endLine === startLine) return `${base}#L${startLine}`;
+  return `${base}#L${startLine}-L${endLine}`;
+}
+
+function sourceLabel(relPath, startLine, endLine) {
+  if (!startLine || startLine <= 0) return relPath;
+  if (!endLine || endLine <= 0 || endLine === startLine) return `${relPath}#L${startLine}`;
+  return `${relPath}#L${startLine}-L${endLine}`;
+}
+
 function syncDoc(docPath) {
   const raw = fs.readFileSync(docPath, 'utf8');
   const original = normalizeNewlines(raw);
@@ -469,6 +499,25 @@ function syncDoc(docPath) {
 
     const spec = parseSnippetSpec(m[1].trim());
     const { startLine, snippet } = extractSnippet(spec);
+
+    const snippetLines = snippet.replace(/\n$/, '').split('\n');
+    const endLine = startLine + snippetLines.length - 1;
+    const sourceLine = `<div className="jzx-source">Source: <a href="${sourceHref(
+      spec.relPath,
+      startLine,
+      endLine,
+    )}"><code>${sourceLabel(spec.relPath, startLine, endLine)}</code></a></div>`;
+
+    const afterDirective = i + 1;
+    if (lines[afterDirective]?.startsWith('<div className="jzx-source">Source:')) {
+      if (lines[afterDirective] !== sourceLine) {
+        lines[afterDirective] = sourceLine;
+        changed = true;
+      }
+    } else {
+      lines.splice(afterDirective, 0, sourceLine);
+      changed = true;
+    }
 
     let fenceStart = i + 1;
     while (fenceStart < lines.length && !lines[fenceStart].startsWith('```')) {
@@ -492,7 +541,6 @@ function syncDoc(docPath) {
       changed = true;
     }
 
-    const snippetLines = snippet.replace(/\n$/, '').split('\n');
     const current = lines.slice(fenceStart + 1, fenceEnd);
     if (current.join('\n') !== snippetLines.join('\n')) {
       lines.splice(fenceStart + 1, fenceEnd - fenceStart - 1, ...snippetLines);
@@ -509,18 +557,22 @@ function syncDoc(docPath) {
 
 let changedCount = 0;
 
-for (const docPath of listMarkdownFiles(deepDiveRoot)) {
-  const { original, updated, changed } = syncDoc(docPath);
-  if (!changed) continue;
+for (const root of deepDiveRoots) {
+  for (const docPath of listMarkdownFiles(root)) {
+    const { updated, changed } = syncDoc(docPath);
+    if (!changed) continue;
 
-  changedCount += 1;
-  if (isCheckMode) {
-    // eslint-disable-next-line no-console
-    console.error(`Out of date: ${path.relative(repoRoot, docPath)} (run: npm run sync:deep-dive)`);
-  } else {
-    fs.writeFileSync(docPath, updated);
-    // eslint-disable-next-line no-console
-    console.log(`Updated: ${path.relative(repoRoot, docPath)}`);
+    changedCount += 1;
+    if (isCheckMode) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `Out of date: ${path.relative(repoRoot, docPath)} (run: npm run sync:deep-dive)`,
+      );
+    } else {
+      fs.writeFileSync(docPath, updated);
+      // eslint-disable-next-line no-console
+      console.log(`Updated: ${path.relative(repoRoot, docPath)}`);
+    }
   }
 }
 

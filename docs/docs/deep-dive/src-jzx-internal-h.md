@@ -9,9 +9,17 @@ This header is **private to the runtime**. It defines the concrete layout of `st
 
 This page uses a “textbook” format: small snippets with immediate explanation.
 
+## Cross-links
+
+- Start here: [Source index](source-index)
+- Public API types referenced here: [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h)
+- Main runtime: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
+- Backend bridge: [libxev integration (`src/jzx_xev.zig`)](src-jzx-xev-zig)
+
 ## Header guard and includes
 
 <!-- snippet: src/jzx_internal.h#L1-L8 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L1-L8"><code>src/jzx_internal.h#L1-L8</code></a></div>
 ```c title="Header guard and includes" showLineNumbers=1
 #ifndef JZX_INTERNAL_H
 #define JZX_INTERNAL_H
@@ -31,6 +39,7 @@ This page uses a “textbook” format: small snippets with immediate explanatio
 ## Forward declarations (internal node types)
 
 <!-- snippet: src/jzx_internal.h#L10-L13 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L10-L13"><code>src/jzx_internal.h#L10-L13</code></a></div>
 ```c title="Forward declarations" showLineNumbers=10
 typedef struct jzx_async_msg jzx_async_msg;
 typedef struct jzx_timer_entry jzx_timer_entry;
@@ -43,6 +52,7 @@ These exist so the file can declare pointers to these structs before defining th
 ## libxev integration hooks (implemented in Zig)
 
 <!-- snippet: src/jzx_internal.h#L15-L22 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L15-L22"><code>src/jzx_internal.h#L15-L22</code></a></div>
 ```c title="xev backend interface" showLineNumbers=15
 jzx_xev* jzx_xev_create(void);
 void jzx_xev_destroy(jzx_xev* state);
@@ -65,6 +75,7 @@ The runtime’s event-loop backend is implemented in `src/jzx_xev.zig` and expos
 ## Mailbox ring buffer (per-actor queue)
 
 <!-- snippet: src/jzx_internal.h#L24-L30 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L24-L30"><code>src/jzx_internal.h#L24-L30</code></a></div>
 ```c title="jzx_mailbox_impl" showLineNumbers=24
 typedef struct {
     jzx_message* buffer;
@@ -89,6 +100,7 @@ Why it exists: bounded ring buffers provide predictable memory and explicit back
 ### Per-child state
 
 <!-- snippet: src/jzx_internal.h#L32-L37 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L32-L37"><code>src/jzx_internal.h#L32-L37</code></a></div>
 ```c title="jzx_child_state" showLineNumbers=32
 typedef struct {
     jzx_child_spec spec;
@@ -105,6 +117,7 @@ typedef struct {
 ### Per-supervisor state
 
 <!-- snippet: src/jzx_internal.h#L39-L45 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L39-L45"><code>src/jzx_internal.h#L39-L45</code></a></div>
 ```c title="jzx_supervisor_state" showLineNumbers=39
 typedef struct {
     jzx_supervisor_spec config;
@@ -122,6 +135,7 @@ typedef struct {
 ## Actor representation (what the scheduler runs)
 
 <!-- snippet: src/jzx_internal.h#L47-L56 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L47-L56"><code>src/jzx_internal.h#L47-L56</code></a></div>
 ```c title="jzx_actor" showLineNumbers=47
 typedef struct jzx_actor {
     jzx_actor_id id;
@@ -148,6 +162,7 @@ Key fields:
 ## Actor table (id → actor mapping, with generations)
 
 <!-- snippet: src/jzx_internal.h#L58-L65 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L58-L65"><code>src/jzx_internal.h#L58-L65</code></a></div>
 ```c title="jzx_actor_table" showLineNumbers=58
 typedef struct {
     jzx_actor** slots;
@@ -170,6 +185,7 @@ Why it exists: it enables fast lookup and robust stale-id rejection.
 ## Run queue (runnable actors waiting to run)
 
 <!-- snippet: src/jzx_internal.h#L67-L73 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L67-L73"><code>src/jzx_internal.h#L67-L73</code></a></div>
 ```c title="jzx_run_queue" showLineNumbers=67
 typedef struct {
     jzx_actor** entries;
@@ -185,6 +201,7 @@ This is a ring buffer of runnable actor pointers used by the scheduler.
 ## The loop (everything the runtime owns)
 
 <!-- snippet: src/jzx_internal.h#L75-L101 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L75-L101"><code>src/jzx_internal.h#L75-L101</code></a></div>
 ```c title="struct jzx_loop" showLineNumbers=75
 struct jzx_loop {
     jzx_config cfg;
@@ -235,6 +252,7 @@ This is the runtime’s “world”:
 ## Async message nodes (cross-thread send queue)
 
 <!-- snippet: src/jzx_internal.h#L103-L110 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L103-L110"><code>src/jzx_internal.h#L103-L110</code></a></div>
 ```c title="struct jzx_async_msg" showLineNumbers=103
 struct jzx_async_msg {
     jzx_actor_id target;
@@ -263,6 +281,7 @@ Lifetime rule (what you should assume):
 ## Timer nodes (sorted due list)
 
 <!-- snippet: src/jzx_internal.h#L112-L120 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L112-L120"><code>src/jzx_internal.h#L112-L120</code></a></div>
 ```c title="struct jzx_timer_entry" showLineNumbers=112
 struct jzx_timer_entry {
     jzx_timer_id id;
@@ -281,6 +300,7 @@ struct jzx_timer_entry {
 ## I/O watch table entries (fd → owner + interest)
 
 <!-- snippet: src/jzx_internal.h#L122-L127 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L122-L127"><code>src/jzx_internal.h#L122-L127</code></a></div>
 ```c title="struct jzx_io_watch" showLineNumbers=122
 struct jzx_io_watch {
     int fd;
@@ -298,6 +318,7 @@ struct jzx_io_watch {
 ## Footer (end include guard)
 
 <!-- snippet: src/jzx_internal.h#L129-L129 -->
+<div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_internal.h#L129"><code>src/jzx_internal.h#L129</code></a></div>
 ```c title="End of header guard" showLineNumbers=129
 #endif
 ```
