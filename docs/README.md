@@ -89,6 +89,25 @@ cd docs
 npm run serve
 ```
 
+## Generated API references (C + Zig)
+
+In addition to the narrative docs, the site can publish two generated “reference-mode” artifacts:
+
+- **C API**: Doxygen output for `include/`
+- **Zig wrapper**: Zig compiler HTML docs for `zig/jzx/lib.zig`
+
+Generate them (writes into `docs/static/api/*`, which is gitignored):
+
+```sh
+cd docs
+npm run gen:api
+```
+
+Notes:
+
+- If `doxygen` is not installed, the script will skip generating the C reference (Zig reference will still be generated).
+- CI runs `npm run gen:api` before `npm run build` so the published site includes both.
+
 ## GitHub Pages notes (url/baseUrl)
 
 This site’s configuration automatically chooses a suitable `baseUrl` on GitHub Actions:

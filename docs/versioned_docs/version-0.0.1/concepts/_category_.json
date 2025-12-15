@@ -1,4 +1,10 @@
 {
   "label": "Concepts",
-  "position": 3
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "title": "Concepts",
+    "slug": "/concepts",
+    "description": "Mental model and invariants for libjzx. Recommended order: Architecture → Design goals."
+  }
 }

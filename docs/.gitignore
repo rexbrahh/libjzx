@@ -7,6 +7,8 @@
 # Generated files
 .docusaurus
 .cache-loader
+/static/api/doxygen
+/static/api/zig
 
 # Misc
 .DS_Store

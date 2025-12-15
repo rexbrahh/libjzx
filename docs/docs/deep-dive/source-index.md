@@ -36,6 +36,11 @@ If you’re new, this order minimizes context switching:
   - memory and thread-safety rules
   - “how to debug” checklists
 
+<Why>
+This section is not a substitute for reading the source — it is a substitute for tribal knowledge.
+The goal is to capture the invariants the code relies on (and the tradeoffs behind them) so the runtime can evolve without losing intent.
+</Why>
+
 ## Tooling options (recommended)
 
 If you want to keep the docs extremely detailed *and* maintainable as code evolves:

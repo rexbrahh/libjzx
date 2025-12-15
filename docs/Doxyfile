@@ -1,0 +1,29 @@
+# libjzx C API reference (Doxygen)
+#
+# This Doxyfile is intentionally minimal and repo-relative so it can be run from `docs/`:
+#   doxygen Doxyfile
+#
+# Output is written under `docs/static/api/doxygen/` so Docusaurus can publish it.
+
+PROJECT_NAME           = "libjzx"
+PROJECT_NUMBER         = "v0.0.1"
+
+OUTPUT_DIRECTORY       = static/api/doxygen
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO
+
+INPUT                  = ../include
+FILE_PATTERNS          = *.h
+RECURSIVE              = YES
+
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+JAVADOC_AUTOBRIEF      = YES
+OPTIMIZE_OUTPUT_FOR_C  = YES
+
+QUIET                  = YES
+WARNINGS               = YES
+
+HAVE_DOT               = NO
+

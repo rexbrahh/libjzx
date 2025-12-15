@@ -14,6 +14,22 @@ At a high level:
 3. A scheduler runs actors that have work available.
 4. Timers and I/O watchers feed more work into mailboxes via the libxev loop.
 
+## Runtime data flow (one loop tick)
+
+```mermaid
+flowchart LR
+    ext["External thread"] -->|"jzx_send_async"| asyncq["Async queue (mutex)"]
+    asyncq -->|"wake"| loop["Loop thread (jzx_loop_run)"]
+
+    sender["Actor behavior"] -->|"jzx_send"| mbox["Mailbox (bounded queue)"]
+    loop -->|"deliver async messages"| mbox
+
+    mbox -->|"runnable"| runq["Run queue"]
+    runq -->|"schedule"| sender
+
+    sender -->|"stop/fail"| sup["Supervisor (optional)"]
+```
+
 ## Major components
 
 - **Loop / executor**: drives libxev, timers, and ready queues. (See: [`jzx_loop_run`](../deep-dive/include-jzx-jzx-h#loop-lifecycle), [backend wiring](../deep-dive/src-jzx-xev-zig#exports))
@@ -52,6 +68,11 @@ There are two deliberate exceptions where other threads can participate safely:
 Practical safety rule:
 
 - Treat everything except `jzx_send_async` as “call from the loop thread (or before the loop starts)”.
+
+<Invariant>
+The loop thread is the only thread that mutates actor mailboxes, the actor table, supervision state, and the run queue.
+Other threads may only inject work indirectly (timers and `jzx_send_async`) and must wake the loop for delivery.
+</Invariant>
 
 ## Where to read in code
 

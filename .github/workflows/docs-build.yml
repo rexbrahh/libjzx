@@ -11,6 +11,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig 0.15.1
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.15.1
+
+      - name: Install Doxygen
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y doxygen
 
       - name: Setup Node.js 20
         uses: actions/setup-node@v4
@@ -22,6 +36,10 @@ jobs:
       - name: Install
         working-directory: docs
         run: npm ci
+
+      - name: Generate API references (C + Zig)
+        working-directory: docs
+        run: npm run gen:api
 
       - name: Check deep-dive sources
         working-directory: docs

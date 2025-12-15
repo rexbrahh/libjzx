@@ -175,6 +175,40 @@
   color: var(--jzx-white);
 }
 
+/* Mermaid diagrams: treat like code blocks (onyx surface + white border). */
+.docusaurus-mermaid-container {
+  margin: 1rem 0;
+  border: 1px solid var(--jzx-white);
+  border-radius: var(--ifm-global-radius);
+  background: var(--jzx-onyx);
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+.docusaurus-mermaid-container svg {
+  background: transparent !important;
+}
+
+/* Textbook callouts (MDX components): Why / Invariant / Pitfall / Checklist. */
+.jzx-callout {
+  margin: 1rem 0;
+  border: 1px solid var(--jzx-white);
+  border-radius: var(--ifm-global-radius);
+  background: var(--jzx-onyx);
+  padding: 0.75rem 1rem;
+}
+
+.jzx-callout__title {
+  margin: 0 0 0.5rem;
+  color: var(--jzx-blue);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.jzx-callout__body {
+  color: var(--jzx-gray-400);
+}
+
 /* Deep-dive snippet source links (GitHub line anchors). */
 .jzx-source {
   margin: 0.35rem 0 0.25rem;

@@ -6,18 +6,33 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Orientation',
       collapsed: false,
+      link: {
+        type: 'generated-index',
+        slug: '/orientation',
+        title: 'Orientation',
+        description:
+          'Start here if you are new: high-level mental model, invariants, and how to read the code-first deep dive.',
+      },
       items: ['intro', 'concepts/architecture', 'concepts/design-goals'],
     },
     {
       type: 'category',
       label: 'Using libjzx',
       collapsed: false,
+      link: {
+        type: 'generated-index',
+        slug: '/using',
+        title: 'Using libjzx',
+        description:
+          'Build/run examples, configure the runtime, debug common issues, and keep reference pages close at hand.',
+      },
       items: [
         'getting-started/installation',
         'getting-started/quickstart',
         'guides/configuration',
         'guides/troubleshooting',
         'reference/config-reference',
+        'reference/api',
         'reference/cli',
       ],
     },
@@ -25,7 +40,13 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Deep Dive (Code)',
       collapsed: true,
-      link: {type: 'doc', id: 'deep-dive/source-index'},
+      link: {
+        type: 'generated-index',
+        slug: '/deep-dive',
+        title: 'Deep Dive (Code)',
+        description:
+          'Textbook-style walkthroughs of every core file and example, with small snippets and line-scoped “Source:” links.',
+      },
       items: [
         {
           type: 'category',
@@ -74,7 +95,25 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Contributing',
       collapsed: true,
+      link: {
+        type: 'generated-index',
+        slug: '/contributing',
+        title: 'Contributing',
+        description: 'Development workflow, formatting, tests, docs, and security reporting.',
+      },
       items: ['contributing/contributing', 'security'],
+    },
+    {
+      type: 'category',
+      label: 'Releases',
+      collapsed: true,
+      link: {
+        type: 'generated-index',
+        slug: '/releases',
+        title: 'Releases',
+        description: 'Version snapshots and “what changed” notes.',
+      },
+      items: ['releases/next'],
     },
   ],
 };

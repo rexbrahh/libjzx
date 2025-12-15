@@ -1,0 +1,32 @@
+---
+title: API reference
+sidebar_position: 3
+---
+
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+# API reference
+
+This site publishes two “reference-mode” artifacts in addition to the narrative deep-dive:
+
+- C API reference (Doxygen): <a href={useBaseUrl('/api/doxygen/html/index.html')}>Open</a>
+- Zig wrapper reference (Zig HTML docs): <a href={useBaseUrl('/api/zig/index.html')}>Open</a>
+
+<Pitfall>
+These pages are generated during the docs build. If you are running locally and the links 404, generate them first (see below).
+The C API reference requires <code>doxygen</code> to be installed.
+</Pitfall>
+
+<Checklist>
+From <code>docs/</code>:
+<ul>
+  <li><code>npm run gen:api</code></li>
+  <li><code>npm run build</code> (or <code>npm run start</code>)</li>
+</ul>
+</Checklist>
+
+## Related docs
+
+- Public contract (narrative): [C ABI deep dive](../deep-dive/include-jzx-jzx-h)
+- Zig wrapper (narrative): [Zig wrapper deep dive](../deep-dive/zig-jzx-lib-zig)
+

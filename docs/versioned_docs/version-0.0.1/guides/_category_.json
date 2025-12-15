@@ -1,4 +1,10 @@
 {
   "label": "Guides",
-  "position": 4
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "title": "Guides",
+    "slug": "/guides",
+    "description": "Operational guidance for configuring and debugging libjzx in real projects."
+  }
 }

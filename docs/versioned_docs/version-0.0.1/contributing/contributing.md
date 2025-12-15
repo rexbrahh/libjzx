@@ -1,9 +1,10 @@
 ---
-title: Contributing
+title: Contributing guide
 sidebar_position: 1
+slug: /contributing/guide
 ---
 
-# Contributing
+# Contributing guide
 
 ## Development workflow
 
@@ -33,8 +34,8 @@ zig build stress
 
 Pointers:
 
-- Tests: `zig/tests/basic.zig` ([walkthrough](deep-dive/zig-tests-basic-zig))
-- Stress tool: `tools/stress.zig` ([walkthrough](deep-dive/tools-stress-zig))
+- Tests: `zig/tests/basic.zig` ([walkthrough](../deep-dive/zig-tests-basic-zig))
+- Stress tool: `tools/stress.zig` ([walkthrough](../deep-dive/tools-stress-zig))
 
 ## Documentation site
 
@@ -44,5 +45,5 @@ See `docs/README.md` for local commands.
 
 ## See also
 
-- [Security](security)
-- [Deep dive: source index](deep-dive/source-index)
+- [Security](../security)
+- [Deep dive: source index](../deep-dive/source-index)

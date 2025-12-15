@@ -12,6 +12,7 @@
     "check:deep-dive:all": "node scripts/sync-deep-dive.mjs --check --include-versions",
     "coverage:deep-dive": "node scripts/coverage-deep-dive.mjs",
     "check:coverage:deep-dive": "node scripts/coverage-deep-dive.mjs --check",
+    "gen:api": "node scripts/gen-api.mjs",
     "swizzle": "docusaurus swizzle",
     "deploy": "docusaurus deploy",
     "clear": "docusaurus clear",
@@ -22,7 +23,9 @@
   },
   "dependencies": {
     "@docusaurus/core": "3.9.2",
+    "@docusaurus/plugin-client-redirects": "^3.9.2",
     "@docusaurus/preset-classic": "3.9.2",
+    "@docusaurus/theme-mermaid": "^3.9.2",
     "@easyops-cn/docusaurus-search-local": "^0.52.2",
     "@mdx-js/react": "^3.0.0",
     "clsx": "^2.0.0",

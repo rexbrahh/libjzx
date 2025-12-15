@@ -1,6 +1,7 @@
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import prismTheme from './src/prismTheme';
+import jzxAutolink from './src/remark/jzxAutolink';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -57,6 +58,10 @@ const config: Config = {
     locales: ['en'],
   },
 
+  markdown: {
+    mermaid: true,
+  },
+
   presets: [
     [
       'classic',
@@ -64,14 +69,19 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           editUrl: `https://github.com/${organizationName}/${projectName}/edit/${defaultBranch}/docs/`,
+          showLastUpdateAuthor: true,
+          showLastUpdateTime: true,
+          remarkPlugins: [jzxAutolink],
           lastVersion: '0.0.1',
           versions: {
             current: {
               label: 'next',
               path: 'next',
+              banner: 'unreleased',
             },
             '0.0.1': {
               label: 'v0.0.1',
+              banner: 'none',
             },
           },
         },
@@ -83,7 +93,21 @@ const config: Config = {
     ],
   ],
 
+  plugins: [
+    [
+      '@docusaurus/plugin-client-redirects',
+      {
+        redirects: [
+          // Pre-landing-page deep link (Contributing guide used to live here).
+          {from: '/docs/contributing/contributing', to: '/docs/contributing/guide'},
+          {from: '/docs/next/contributing/contributing', to: '/docs/next/contributing/guide'},
+        ],
+      },
+    ],
+  ],
+
   themes: [
+    '@docusaurus/theme-mermaid',
     [
       '@easyops-cn/docusaurus-search-local',
       {
@@ -112,6 +136,12 @@ const config: Config = {
           sidebarId: 'docsSidebar',
           position: 'left',
           label: 'Docs',
+        },
+        {
+          type: 'doc',
+          docId: 'reference/api',
+          position: 'left',
+          label: 'API',
         },
         {
           type: 'docsVersionDropdown',
@@ -157,6 +187,24 @@ const config: Config = {
       theme: prismTheme,
       darkTheme: prismTheme,
       additionalLanguages: ['c', 'zig', 'bash', 'diff'],
+    },
+    mermaid: {
+      theme: {light: 'base', dark: 'base'},
+      options: {
+        themeVariables: {
+          background: '#0b0b0b',
+          mainBkg: '#0b0b0b',
+          primaryColor: '#0f0f10',
+          secondaryColor: '#1f1f22',
+          tertiaryColor: '#0b0b0b',
+          primaryBorderColor: '#ffffff',
+          lineColor: '#ffffff',
+          primaryTextColor: '#c2c6cc',
+          noteBkgColor: '#0f0f10',
+          noteTextColor: '#c2c6cc',
+          edgeLabelBackground: '#0b0b0b',
+        },
+      },
     },
   } satisfies Preset.ThemeConfig,
 };

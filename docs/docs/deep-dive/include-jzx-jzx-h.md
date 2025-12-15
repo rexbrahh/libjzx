@@ -39,7 +39,7 @@ This block is “plumbing” that makes the header safe to include and usable fr
 - `#include <stdint.h>`: provides fixed-width integer types (`uint32_t`, `uint64_t`, …).
 - `extern "C"`: ensures the exported symbol names remain C ABI when compiled as C++ (no name mangling).
 
-## Error model (all APIs speak `jzx_err`)
+## Error model (all APIs speak `jzx_err`) {#error-model}
 
 <!-- snippet: include/jzx/jzx.h#L11-L25 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L11-L25"><code>include/jzx/jzx.h#L11-L25</code></a></div>
@@ -78,7 +78,7 @@ Each error code exists to make failure modes **explicit and machine-checkable**:
 - `JZX_ERR_IO_NOT_WATCHED`: you tried to unwatch an fd that is not currently watched.
 - `JZX_ERR_MAX_ACTORS`: runtime is at capacity (`cfg.max_actors`).
 
-## Core identifiers and the opaque loop type
+## Core identifiers and the opaque loop type {#core-identifiers}
 
 <!-- snippet: include/jzx/jzx.h#L27-L32 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L27-L32"><code>include/jzx/jzx.h#L27-L32</code></a></div>
@@ -95,7 +95,7 @@ typedef struct jzx_loop jzx_loop;
 - `jzx_timer_id`: identifies a scheduled timer.
 - `typedef struct jzx_loop jzx_loop;`: `jzx_loop` is opaque in the public header so callers can only interact through the ABI functions (this keeps internal layout flexible).
 
-## Allocator interface (how the runtime allocates)
+## Allocator interface (how the runtime allocates) {#allocator-interface}
 
 <!-- snippet: include/jzx/jzx.h#L34-L38 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L34-L38"><code>include/jzx/jzx.h#L34-L38</code></a></div>
@@ -149,7 +149,7 @@ void jzx_config_init(jzx_config* cfg);
 - `io_poll_timeout_ms`: how long the loop waits for I/O when idle (backend-specific “sleep” behavior).
 - `jzx_config_init`: fills a config struct with safe defaults so callers don’t have to initialize every field manually.
 
-## Message envelope and system tags
+## Message envelope and system tags {#message-envelope}
 
 <!-- snippet: include/jzx/jzx.h#L52-L61 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L52-L61"><code>include/jzx/jzx.h#L52-L61</code></a></div>
@@ -189,7 +189,7 @@ Payload ownership and lifetime rules (critical):
   - For `JZX_TAG_SYS_IO`, the runtime allocates a `jzx_io_event` and passes it via `msg.data`.
   - That payload must be freed with `jzx_loop_free(loop, msg.data)` (see the echo server example for the pattern).
 
-## Behavior interface (what an actor “is”)
+## Behavior interface (what an actor “is”) {#behavior-interface}
 
 ### Execution context
 
