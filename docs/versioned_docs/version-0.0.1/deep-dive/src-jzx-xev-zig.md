@@ -12,14 +12,14 @@ This file is the bridge between:
 
 This page uses a textbook-style format: short snippets with explanation immediately around them.
 
-## Cross-links
+## Cross-links {#cross-links}
 
 - Start here: [Source index](source-index)
 - Public API (watch/unwatch): [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h#timers-and-io)
 - Runtime delivery path: [Runtime core (`src/jzx_runtime.c`)](src-jzx-runtime-c)
 - Example using fd watches: [Zig echo server](examples-zig-echo-server-zig)
 
-## Imports, ABI wiring, and core aliases
+## Imports, ABI wiring, and core aliases {#imports}
 
 <!-- snippet: src/jzx_xev.zig#L1-L13 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L1-L13"><code>src/jzx_xev.zig#L1-L13</code></a></div>
@@ -49,7 +49,7 @@ What each line is doing:
 
 Why it exists: the runtime owns scheduling and message delivery, but it needs a backend to translate OS readiness events into “enqueue a message”.
 
-## The per-fd watch object (`Watch`)
+## The per-fd watch object (`Watch`) {#watch}
 
 <!-- snippet: src/jzx_xev.zig#L15-L25 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L15-L25"><code>src/jzx_xev.zig#L15-L25</code></a></div>
@@ -78,7 +78,7 @@ const Watch = struct {
 
 Why the `*_cancel` completions exist: xev completion objects have a lifecycle; cancelling an active completion is itself an operation that must be tracked until complete.
 
-## Backend state stored inside the C loop (`XevState`)
+## Backend state stored inside the C loop (`XevState`) {#xev-state}
 
 <!-- snippet: src/jzx_xev.zig#L27-L45 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L27-L45"><code>src/jzx_xev.zig#L27-L45</code></a></div>
@@ -114,7 +114,7 @@ pub const XevState = struct {
   - destroys all allocated watches
   - poisons `self` to catch use-after-free
 
-## Backend capability check (`supportsPollOps`)
+## Backend capability check (`supportsPollOps`) {#supports}
 
 <!-- snippet: src/jzx_xev.zig#func=supportsPollOps -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L47-L56"><code>src/jzx_xev.zig#L47-L56</code></a></div>
@@ -138,7 +138,7 @@ This function answers: “can the chosen xev backend support the polling operati
 
 Why it exists: if the backend can’t watch fds, the runtime’s I/O API must fail gracefully.
 
-## Finding and creating watches (`findWatchIndex` and `ensureWatch`)
+## Finding and creating watches (`findWatchIndex` and `ensureWatch`) {#watches}
 
 <!-- snippet: src/jzx_xev.zig#func=findWatchIndex -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L58-L63"><code>src/jzx_xev.zig#L58-L63</code></a></div>
@@ -184,7 +184,7 @@ This function ensures there is a `Watch` for an fd:
 
 Why it exists: it centralizes the “lookup or create” logic so `watch_fd` stays small.
 
-## Cancelling active completions (`cancelIfNeeded`)
+## Cancelling active completions (`cancelIfNeeded`) {#cancel}
 
 <!-- snippet: src/jzx_xev.zig#func=cancelIfNeeded -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L83-L120"><code>src/jzx_xev.zig#L83-L120</code></a></div>
@@ -248,7 +248,7 @@ fn cancelCallback(_: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.C
 
 The cancel callback always returns `.disarm`, which tells xev not to rearm the cancellation completion.
 
-## Readiness callbacks (delivering events back into C)
+## Readiness callbacks (delivering events back into C) {#readiness}
 
 <!-- snippet: src/jzx_xev.zig#func=readCallback -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L126-L133"><code>src/jzx_xev.zig#L126-L133</code></a></div>
@@ -285,7 +285,7 @@ fn writeCallback(ud: ?*anyopaque, _: *Loop, _: *Completion, _: Xev.Result) Xev.C
 
 Same logic as `readCallback`, but for `JZX_IO_WRITE`.
 
-## Arming read/write operations (`armRead` / `armWrite`)
+## Arming read/write operations (`armRead` / `armWrite`) {#arming}
 
 <!-- snippet: src/jzx_xev.zig#func=armRead -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L144-L195"><code>src/jzx_xev.zig#L144-L195</code></a></div>
@@ -411,7 +411,7 @@ Same logic as `armRead`, but arms “writable” readiness.
 
 Why the dynamic path is more verbose: xev’s dynamic superset requires constructing backend-tagged completion values at compile time.
 
-## Keeping watch state consistent (`syncWatch`, `sweep`)
+## Keeping watch state consistent (`syncWatch`, `sweep`) {#consistency}
 
 <!-- snippet: src/jzx_xev.zig#func=syncWatch -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L250-L266"><code>src/jzx_xev.zig#L250-L266</code></a></div>
@@ -484,7 +484,7 @@ fn sweep(state: *XevState) void {
 
 It removes freed watches by swapping with the last element (O(1) removal, order not preserved).
 
-## Wake callback
+## Wake callback {#wake-callback}
 
 <!-- snippet: src/jzx_xev.zig#func=wakeCallback -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_xev.zig#L292-L295"><code>src/jzx_xev.zig#L292-L295</code></a></div>
@@ -497,7 +497,7 @@ fn wakeCallback(_: ?*void, _: *Loop, _: *Completion, result: Async.WaitError!voi
 
 The wake callback rearms itself on success so the async wake handle continues to work for the lifetime of the loop.
 
-## Exported functions (C runtime calls these)
+## Exported functions (C runtime calls these) {#exports}
 
 ### Create backend state
 

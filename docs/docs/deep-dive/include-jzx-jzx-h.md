@@ -120,7 +120,7 @@ Practical contracts (based on the current runtime implementation):
 - Alignment: `alloc(ctx, size)` should return pointers aligned at least like `malloc` would (i.e., suitable for any normal C object; `alignof(max_align_t)` is a good mental model).
 - Null frees: the runtime guards null pointers at call sites (so it should not call `free(ctx, NULL)`), but a “`free(NULL)` is a no-op” implementation is still recommended for robustness.
 
-## Runtime config (knobs that shape scheduling and capacity)
+## Runtime config (knobs that shape scheduling and capacity) {#runtime-config}
 
 <!-- snippet: include/jzx/jzx.h#L40-L50 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/include/jzx/jzx.h#L40-L50"><code>include/jzx/jzx.h#L40-L50</code></a></div>

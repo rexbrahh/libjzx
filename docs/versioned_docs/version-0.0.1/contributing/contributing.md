@@ -41,3 +41,8 @@ Pointers:
 The docs website lives under `docs/` (Node.js 20+).
 
 See `docs/README.md` for local commands.
+
+## See also
+
+- [Security](security)
+- [Deep dive: source index](deep-dive/source-index)

@@ -9,7 +9,7 @@ This file is the primary implementation of the libjzx runtime: actors, mailboxes
 
 Unlike a reference dump, this page is written in a “textbook” style: small snippets with the explanation immediately around them. The goal is to explain what each piece *is*, how it works, and why it exists.
 
-## Cross-links
+## Cross-links {#cross-links}
 
 - Start here: [Source index](source-index)
 - API + config surface: [C ABI (`include/jzx/jzx.h`)](include-jzx-jzx-h), [Configuration reference](../reference/config-reference)
@@ -17,7 +17,7 @@ Unlike a reference dump, this page is written in a “textbook” style: small s
 - I/O backend: [libxev integration (`src/jzx_xev.zig`)](src-jzx-xev-zig)
 - Semantics in practice: [Integration tests](zig-tests-basic-zig), [Stress tool](tools-stress-zig)
 
-## Includes and file-level structure
+## Includes and file-level structure {#includes}
 
 <!-- snippet: src/jzx_runtime.c#L1-L9 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1-L9"><code>src/jzx_runtime.c#L1-L9</code></a></div>
@@ -45,7 +45,7 @@ The rest of the file is organized with section headers like:
 
 Those section headers are meant to be a reading guide: each section is a subsystem with its own invariants.
 
-## Utility helpers
+## Utility helpers {#utility-helpers}
 
 ### Actor id encoding helpers
 
@@ -283,7 +283,7 @@ Why these exist:
 - The dashed section headers are purely for human readers, but they’re valuable in a file this large:
   - each header marks a coherent subsystem with its own invariants.
 
-## Wakeup helpers (event loop notification)
+## Wakeup helpers (event loop notification) {#wakeup-helpers}
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_wakeup_signal -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L124-L129"><code>src/jzx_runtime.c#L124-L129</code></a></div>
@@ -298,7 +298,7 @@ static void jzx_wakeup_signal(jzx_loop* loop) {
 
 This is how the runtime wakes the backend event loop when something arrives from another thread (async send queue or timer wake).
 
-## Observer helpers (instrumentation)
+## Observer helpers (instrumentation) {#observer-helpers}
 
 <!-- snippet: src/jzx_runtime.c#L131-L133 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L131-L133"><code>src/jzx_runtime.c#L131-L133</code></a></div>
@@ -363,7 +363,7 @@ static void jzx_obs_mailbox_full(jzx_loop* loop, jzx_actor_id target) {
 
 Why these exist: to keep observer checks consistent and to keep the core logic readable.
 
-## Mailbox implementation (bounded per-actor queue)
+## Mailbox implementation (bounded per-actor queue) {#mailbox}
 
 <!-- snippet: src/jzx_runtime.c#L166-L168 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L166-L168"><code>src/jzx_runtime.c#L166-L168</code></a></div>
@@ -453,7 +453,7 @@ static int jzx_mailbox_has_items(const jzx_mailbox_impl* box) {
 }
 ```
 
-## Actor table (id → actor pointer with generations)
+## Actor table (id → actor pointer with generations) {#actor-table}
 
 <!-- snippet: src/jzx_runtime.c#L220-L222 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L220-L222"><code>src/jzx_runtime.c#L220-L222</code></a></div>
@@ -575,7 +575,7 @@ static void jzx_actor_table_remove(jzx_actor_table* table, jzx_actor* actor) {
 }
 ```
 
-## Run queue (who runs next)
+## Run queue (who runs next) {#run-queue}
 
 <!-- snippet: src/jzx_runtime.c#L312-L314 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L312-L314"><code>src/jzx_runtime.c#L312-L314</code></a></div>
@@ -655,7 +655,7 @@ static void jzx_schedule_actor(jzx_loop* loop, jzx_actor* actor) {
 
 This is the scheduler’s “make runnable” operation. It ensures a runnable actor is in the run queue exactly once.
 
-## Actor teardown (resource cleanup)
+## Actor teardown (resource cleanup) {#actor-teardown}
 
 <!-- snippet: src/jzx_runtime.c#func=jzx_teardown_actor -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L364-L392"><code>src/jzx_runtime.c#L364-L392</code></a></div>
@@ -698,7 +698,7 @@ This function owns the “stop means free” contract:
 - Frees supervision state if present.
 - Removes the actor from the actor table and frees its allocation.
 
-## Supervision logic (restart strategies)
+## Supervision logic (restart strategies) {#supervision}
 
 <!-- snippet: src/jzx_runtime.c#L394-L396 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L394-L396"><code>src/jzx_runtime.c#L394-L396</code></a></div>
@@ -958,7 +958,7 @@ static jzx_behavior_result jzx_supervisor_behavior(jzx_context* ctx, const jzx_m
 
 Supervisor actors are just actors with a special behavior: they react to system tags like “child exit” and “restart child”.
 
-## Async queue (`jzx_send_async`)
+## Async queue (`jzx_send_async`) {#async-queue}
 
 <!-- snippet: src/jzx_runtime.c#L608-L610 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L608-L610"><code>src/jzx_runtime.c#L608-L610</code></a></div>
@@ -1100,7 +1100,7 @@ static int jzx_async_has_pending(jzx_loop* loop) {
 }
 ```
 
-## Timer system (timer thread + due list)
+## Timer system (timer thread + due list) {#timer-system}
 
 <!-- snippet: src/jzx_runtime.c#L708-L710 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L708-L710"><code>src/jzx_runtime.c#L708-L710</code></a></div>
@@ -1274,7 +1274,7 @@ static int jzx_timer_has_pending(jzx_loop* loop) {
 }
 ```
 
-## I/O watchers (fd table + backend registration)
+## I/O watchers (fd table + backend registration) {#io-watchers}
 
 <!-- snippet: src/jzx_runtime.c#L854-L856 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L854-L856"><code>src/jzx_runtime.c#L854-L856</code></a></div>
@@ -1432,7 +1432,7 @@ The return value is intentionally small and lossy:
 - `1`: the event was “handled” from the backend’s perspective.
   - Even if the message could not be enqueued, the backend shouldn’t spin endlessly on the same readiness.
 
-## Config helpers and loop lifecycle (public ABI entry points)
+## Config helpers and loop lifecycle (public ABI entry points) {#config-helpers-and-loop-lifecycle-public-abi-entry-points}
 
 ### Default allocator hooks
 
@@ -1734,7 +1734,7 @@ void jzx_loop_set_observer(jzx_loop* loop, const jzx_observer* obs, void* ctx) {
 }
 ```
 
-## Actor APIs (spawn/send/stop/fail)
+## Actor APIs (spawn/send/stop/fail) {#actor-apis}
 
 <!-- snippet: src/jzx_runtime.c#L1197-L1199 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1197-L1199"><code>src/jzx_runtime.c#L1197-L1199</code></a></div>
@@ -1866,7 +1866,7 @@ jzx_err jzx_actor_fail(jzx_loop* loop, jzx_actor_id id) {
 }
 ```
 
-## Supervisor APIs (public ABI entry points)
+## Supervisor APIs (public ABI entry points) {#supervisor-apis}
 
 <!-- snippet: src/jzx_runtime.c#L1295-L1297 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1295-L1297"><code>src/jzx_runtime.c#L1295-L1297</code></a></div>
@@ -1943,7 +1943,7 @@ jzx_err jzx_supervisor_child_id(jzx_loop* loop, jzx_actor_id supervisor, size_t 
 }
 ```
 
-## Timers and I/O APIs (public ABI entry points)
+## Timers and I/O APIs (public ABI entry points) {#timers-and-io-apis}
 
 <!-- snippet: src/jzx_runtime.c#L1358-L1360 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/src/jzx_runtime.c#L1358-L1360"><code>src/jzx_runtime.c#L1358-L1360</code></a></div>
@@ -2078,7 +2078,7 @@ jzx_err jzx_unwatch_fd(jzx_loop* loop, int fd) {
 }
 ```
 
-## Appendix: full file (for grepping and context)
+## Appendix: full file (for grepping and context) {#appendix}
 
 <details>
 <summary>Show full <code>src/jzx_runtime.c</code></summary>

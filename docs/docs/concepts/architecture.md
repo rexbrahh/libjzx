@@ -16,11 +16,11 @@ At a high level:
 
 ## Major components
 
-- **Loop / executor**: drives libxev, timers, and ready queues.
-- **Scheduler**: selects runnable actors and advances them.
-- **Mailbox**: per-actor queue with explicit backpressure behavior.
-- **Supervision**: supervisor trees that restart/replace actors on failure.
-- **Observability**: an optional observer callback table for lifecycle and pressure signals.
+- **Loop / executor**: drives libxev, timers, and ready queues. (See: [`jzx_loop_run`](../deep-dive/include-jzx-jzx-h#loop-lifecycle), [backend wiring](../deep-dive/src-jzx-xev-zig#exports))
+- **Scheduler**: selects runnable actors and advances them. (See: [run queue](../deep-dive/src-jzx-runtime-c#run-queue))
+- **Mailbox**: per-actor queue with explicit backpressure behavior. (See: [mailbox implementation](../deep-dive/src-jzx-runtime-c#mailbox))
+- **Supervision**: supervisor trees that restart/replace actors on failure. (See: [API model](../deep-dive/include-jzx-jzx-h#supervision), [runtime logic](../deep-dive/src-jzx-runtime-c#supervision))
+- **Observability**: an optional observer callback table for lifecycle and pressure signals. (See: [observer callbacks](../deep-dive/include-jzx-jzx-h#observability), [instrumentation hooks](../deep-dive/src-jzx-runtime-c#observer-helpers))
 
 ## Code layout
 
@@ -62,7 +62,10 @@ Core surfaces:
 - Scheduler/mailboxes/supervision/timers: [runtime core (`src/jzx_runtime.c`)](../deep-dive/src-jzx-runtime-c)
 - I/O watchers + wakeups: [libxev integration (`src/jzx_xev.zig`)](../deep-dive/src-jzx-xev-zig)
 
-Related docs:
+## See also
 
-- [Quickstart](../getting-started/quickstart)
+- [Design goals](design-goals)
+- [Quickstart](../getting-started/quickstart#build-and-run-the-examples)
+- [Configuration](../guides/configuration)
 - [Configuration reference](../reference/config-reference)
+- [Deep dive: source index](../deep-dive/source-index)

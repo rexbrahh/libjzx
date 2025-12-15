@@ -42,3 +42,11 @@ Callback contract (practical guidance):
   - avoid I/O, locks, or heavy allocation unless you know it’s safe for your workload.
 - Treat the observer context pointer (`ctx`) as loop-owned configuration:
   - it must remain valid for as long as the observer is installed.
+
+## See also
+
+- Field-by-field defaults: [Configuration reference](../reference/config-reference)
+- Defaults implementation: [`jzx_config_init` + `apply_defaults`](../deep-dive/src-jzx-runtime-c#config-helpers-and-loop-lifecycle-public-abi-entry-points)
+- Build graph wiring: [`build.zig.zon`](../deep-dive/build-zig-zon#dependencies), [`build.zig`](../deep-dive/build-zig#build-entrypoint)
+- Concepts: [Architecture](../concepts/architecture), [Design goals](../concepts/design-goals)
+- Debugging: [Troubleshooting](troubleshooting)

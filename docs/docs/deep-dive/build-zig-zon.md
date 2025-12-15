@@ -14,13 +14,13 @@ It answers questions like:
 
 This page is written in a “textbook” style: small code snippets surrounded by the explanation of what they mean and why they exist.
 
-## Cross-links
+## Cross-links {#cross-links}
 
 - Start here: [Source index](source-index)
 - Next: [Build graph — `build.zig`](build-zig)
 - Practical: [Installation](../getting-started/installation)
 
-## The top-level object
+## The top-level object {#top-level-object}
 
 `build.zig.zon` is a Zig struct literal (a “ZON” file) describing the package.
 
@@ -45,7 +45,7 @@ What each field means:
 - `.minimum_zig_version = "0.15.1"`: an explicit compatibility floor.
   - Why it exists: Zig’s build API evolves; pinning a minimum prevents confusing “works on my machine” issues.
 
-## Dependencies (pinned external code)
+## Dependencies (pinned external code) {#dependencies}
 
 libjzx depends on `libxev`, and the dependency is pinned to a specific archive URL + hash.
 
@@ -69,7 +69,7 @@ Key ideas:
 - `.hash` is the integrity/content hash for the downloaded archive.
   - Why it exists: prevents supply-chain substitution and ensures Zig caches the right contents.
 
-## Package “paths” (what’s included when used as a dependency)
+## Package “paths” (what’s included when used as a dependency) {#package-paths}
 
 `.paths` tells Zig which repo paths are considered part of the package.
 
@@ -102,7 +102,7 @@ Notes:
 - Including `docs/` is convenient for in-repo development, but it can increase dependency size for downstream users.
   - If that becomes undesirable, you can remove `docs` from the list without impacting the runtime itself.
 
-## Full listing (for reference)
+## Full listing (for reference) {#full-listing}
 
 <!-- snippet: build.zig.zon#all -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig.zon#L1-L25"><code>build.zig.zon#L1-L25</code></a></div>

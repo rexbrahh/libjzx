@@ -20,7 +20,7 @@ It creates:
 
 This page explains the build graph in “textbook” style: small snippets with the explanation immediately around them.
 
-## Cross-links
+## Cross-links {#cross-links}
 
 - Start here: [Source index](source-index)
 - Previous: [Dependency manifest — `build.zig.zon`](build-zig-zon)
@@ -29,7 +29,7 @@ This page explains the build graph in “textbook” style: small snippets with 
   - [libxev integration — `src/jzx_xev.zig`](src-jzx-xev-zig)
 - Practical: [Installation](../getting-started/installation), [Quickstart](../getting-started/quickstart)
 
-## Importing Zig’s build API
+## Importing Zig’s build API {#imports}
 
 <!-- snippet: build.zig#L1-L1 -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L1"><code>build.zig#L1</code></a></div>
@@ -39,7 +39,7 @@ const std = @import("std");
 
 - `std` provides `std.Build` (the build graph builder) and other build-time utilities.
 
-## The runtime module factory: `makeRuntimeModule`
+## The runtime module factory: `makeRuntimeModule` {#runtime-module}
 
 The runtime is compiled as a Zig module that includes:
 
@@ -87,7 +87,7 @@ Line-by-line intent:
 - `module.linkSystemLibrary("pthread", ...)` explicitly links pthreads on platforms that require it.
   - Why it exists: libxev and/or async primitives may rely on threading primitives.
 
-## The build entrypoint: `pub fn build`
+## The build entrypoint: `pub fn build` {#build-entrypoint}
 
 Zig calls `build(b)` as the root of the build graph. Everything else hangs off of this.
 
@@ -349,7 +349,7 @@ Why the list is explicit (instead of formatting “everything”):
 - It ensures formatting applies to exactly the sources that should be Zig-formatted.
 - It avoids formatting vendored dependencies or generated files.
 
-## Full listing (for reference)
+## Full listing (for reference) {#full-listing}
 
 <!-- snippet: build.zig#all -->
 <div className="jzx-source">Source: <a href="https://github.com/rexbrahh/libjzx/blob/main/build.zig#L1-L158"><code>build.zig#L1-L158</code></a></div>

@@ -132,7 +132,9 @@ Why it exists:
 - Spawn-time knobs: `jzx_spawn_opts` (per-actor mailbox cap, supervisor linkage, name).
 - Supervision knobs: `jzx_supervisor_init` and `jzx_child_spec` (restart strategy, intensity, backoff).
 
-For deep-dive walkthroughs, start at:
+## See also
 
-- [Source index](../deep-dive/source-index)
-- [C ABI (`include/jzx/jzx.h`)](../deep-dive/include-jzx-jzx-h)
+- [Configuration](../guides/configuration)
+- [C ABI config definition (`jzx_config`)](../deep-dive/include-jzx-jzx-h#runtime-config)
+- [Defaults implementation (`jzx_config_init` + `apply_defaults`)](../deep-dive/src-jzx-runtime-c#config-helpers-and-loop-lifecycle-public-abi-entry-points)
+- [Deep dive: source index](../deep-dive/source-index)

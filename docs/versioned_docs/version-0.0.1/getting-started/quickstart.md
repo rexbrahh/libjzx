@@ -5,7 +5,7 @@ sidebar_position: 2
 
 # Quickstart
 
-## Build and run the examples
+## Build and run the examples {#build-and-run-the-examples}
 
 From the repo root:
 
@@ -63,3 +63,10 @@ If you prefer compiling them directly (bypassing Zig), see the commands in the r
 ## Next
 
 - [Architecture](../concepts/architecture)
+
+## See also
+
+- [Installation](installation)
+- [Configuration](../guides/configuration)
+- [Configuration reference](../reference/config-reference)
+- [Deep dive: source index](../deep-dive/source-index)
